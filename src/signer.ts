@@ -8,6 +8,7 @@
 import { schnorr } from '@noble/curves/secp256k1';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { sha256 } from '@noble/hashes/sha256';
+import { v2 as nip44 } from 'nostr-tools/nip44';
 import type { UnsignedEvent, SignedEvent } from './types.js';
 
 // ─── Signer Interface ───────────────────────────────────────────────────────
@@ -87,25 +88,14 @@ export class PrivateKeySigner implements MarmotSigner {
     return { ...withPubkey, id, sig };
   }
 
-  async nip44Encrypt(_pubkey: string, plaintext: string): Promise<string> {
-    // In a real implementation, this would use NIP-44 encryption.
-    // For testing, we use a simple stub that needs to be replaced
-    // with actual nostr-tools nip44 encrypt when available.
-    void _pubkey;
-    void plaintext;
-    throw new Error(
-      'NIP-44 encryption not implemented in PrivateKeySigner. ' +
-        'Use nostr-tools nip44 functions directly or implement a custom signer.'
-    );
+  async nip44Encrypt(pubkey: string, plaintext: string): Promise<string> {
+    const conversationKey = nip44.utils.getConversationKey(this._privateKey, pubkey);
+    return nip44.encrypt(plaintext, conversationKey);
   }
 
-  async nip44Decrypt(_pubkey: string, _ciphertext: string): Promise<string> {
-    void _pubkey;
-    void _ciphertext;
-    throw new Error(
-      'NIP-44 decryption not implemented in PrivateKeySigner. ' +
-        'Use nostr-tools nip44 functions directly or implement a custom signer.'
-    );
+  async nip44Decrypt(pubkey: string, ciphertext: string): Promise<string> {
+    const conversationKey = nip44.utils.getConversationKey(this._privateKey, pubkey);
+    return nip44.decrypt(ciphertext, conversationKey);
   }
 
   /**

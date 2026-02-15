@@ -49,16 +49,26 @@ describe('signer', () => {
       expect(signed1.id).toBe(signed2.id);
     });
 
-    it('should throw on nip44Encrypt', async () => {
-      await expect(signer.nip44Encrypt('a'.repeat(64), 'test')).rejects.toThrow(
-        'NIP-44 encryption not implemented'
-      );
+    it('should encrypt and decrypt with NIP-44', async () => {
+      // Use the signer's own pubkey as the recipient (self-encryption)
+      const pubkey = await signer.getPublicKey();
+      const plaintext = 'Hello, NIP-44 encryption!';
+
+      const encrypted = await signer.nip44Encrypt(pubkey, plaintext);
+      expect(encrypted).toBeDefined();
+      expect(encrypted).not.toBe(plaintext);
+
+      const decrypted = await signer.nip44Decrypt(pubkey, encrypted);
+      expect(decrypted).toBe(plaintext);
     });
 
-    it('should throw on nip44Decrypt', async () => {
-      await expect(signer.nip44Decrypt('a'.repeat(64), 'test')).rejects.toThrow(
-        'NIP-44 decryption not implemented'
-      );
+    it('should produce different ciphertexts for same plaintext (random nonce)', async () => {
+      const pubkey = await signer.getPublicKey();
+      const plaintext = 'test message';
+
+      const encrypted1 = await signer.nip44Encrypt(pubkey, plaintext);
+      const encrypted2 = await signer.nip44Encrypt(pubkey, plaintext);
+      expect(encrypted1).not.toBe(encrypted2); // Different nonces
     });
 
     it('should expose private key hex', () => {
