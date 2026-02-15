@@ -1,0 +1,107 @@
+{
+  "name": "marmot-ts",
+  "version": "0.1.0",
+  "description": "TypeScript library for the Marmot Protocol — secure, decentralized group messaging combining MLS + Nostr",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./mip00": {
+      "import": "./dist/mip00.js",
+      "types": "./dist/mip00.d.ts"
+    },
+    "./mip01": {
+      "import": "./dist/mip01.js",
+      "types": "./dist/mip01.d.ts"
+    },
+    "./mip02": {
+      "import": "./dist/mip02.js",
+      "types": "./dist/mip02.d.ts"
+    },
+    "./mip03": {
+      "import": "./dist/mip03.js",
+      "types": "./dist/mip03.d.ts"
+    },
+    "./mip04": {
+      "import": "./dist/mip04.js",
+      "types": "./dist/mip04.d.ts"
+    },
+    "./crypto": {
+      "import": "./dist/crypto.js",
+      "types": "./dist/crypto.d.ts"
+    },
+    "./signer": {
+      "import": "./dist/signer.js",
+      "types": "./dist/signer.d.ts"
+    },
+    "./utils": {
+      "import": "./dist/utils.js",
+      "types": "./dist/utils.d.ts"
+    },
+    "./types": {
+      "import": "./dist/types.js",
+      "types": "./dist/types.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint src/ test/",
+    "format": "prettier --write 'src/**/*.ts' 'test/**/*.ts'",
+    "format:check": "prettier --check 'src/**/*.ts' 'test/**/*.ts'",
+    "prepublishOnly": "npm run build && npm run test",
+    "clean": "rm -rf dist"
+  },
+  "keywords": [
+    "marmot",
+    "nostr",
+    "mls",
+    "messaging-layer-security",
+    "e2ee",
+    "end-to-end-encryption",
+    "group-messaging",
+    "decentralized",
+    "nip-44",
+    "nip-59",
+    "rfc9420"
+  ],
+  "author": "Nova Carnivore",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nova-carnivore/marmot-ts"
+  },
+  "bugs": {
+    "url": "https://github.com/nova-carnivore/marmot-ts/issues"
+  },
+  "homepage": "https://github.com/nova-carnivore/marmot-ts#readme",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "nostr-tools": "^2.10.4",
+    "@noble/curves": "^1.8.1",
+    "@noble/hashes": "^1.7.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5",
+    "@types/node": "^22.13.4",
+    "eslint": "^9.20.0",
+    "@eslint/js": "^9.20.0",
+    "typescript-eslint": "^8.24.0",
+    "prettier": "^3.5.1"
+  }
+}
