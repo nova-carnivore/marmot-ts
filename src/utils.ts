@@ -16,13 +16,9 @@ export { bytesToHex, hexToBytes };
 
 /**
  * Encode bytes to base64.
+ * Uses standard Web APIs (atob/btoa) available in Node.js 20+, Deno, Bun, and browsers.
  */
 export function bytesToBase64(bytes: Uint8Array): string {
-  // Works in both Node.js and browsers
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(bytes).toString('base64');
-  }
-  // Browser fallback
   let binary = '';
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]!);
@@ -32,12 +28,9 @@ export function bytesToBase64(bytes: Uint8Array): string {
 
 /**
  * Decode base64 to bytes.
+ * Uses standard Web APIs (atob/btoa) available in Node.js 20+, Deno, Bun, and browsers.
  */
 export function base64ToBytes(base64: string): Uint8Array {
-  if (typeof Buffer !== 'undefined') {
-    return new Uint8Array(Buffer.from(base64, 'base64'));
-  }
-  // Browser fallback
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
