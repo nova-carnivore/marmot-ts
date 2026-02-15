@@ -47,7 +47,7 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm run build
-      - run: deno test --allow-read --allow-env test/
+      - run: deno test --unstable-sloppy-imports --allow-read --allow-env test/
 
   lint:
     name: Lint & Format
