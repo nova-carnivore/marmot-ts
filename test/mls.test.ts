@@ -16,6 +16,8 @@ import {
   decodeMlsState,
   encodeWelcome,
   decodeWelcome,
+  encodeWelcomeRaw,
+  decodeWelcomeRaw,
   encodeKeyPackage,
   decodeKeyPackage,
 } from '../src/mls.js';
@@ -376,7 +378,7 @@ describe('State serialization', () => {
     );
   });
 
-  it('should encode/decode Welcome round-trip', async () => {
+  it('should encode Welcome as MLSMessage-wrapped (MIP-02 format)', async () => {
     const groupId = new Uint8Array(32).fill(0x01);
     const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
 
@@ -389,7 +391,59 @@ describe('State serialization', () => {
     expect(encoded).toBeInstanceOf(Uint8Array);
     expect(encoded.length).toBeGreaterThan(100);
 
+    // Per MIP-02: Welcome MUST be MLSMessage-wrapped
+    // MLSMessage starts with version 0x0001 + wireformat 0x0003 (mls_welcome)
+    expect(encoded[0]).toBe(0x00);
+    expect(encoded[1]).toBe(0x01); // version = mls10
+    expect(encoded[2]).toBe(0x00);
+    expect(encoded[3]).toBe(0x03); // wireformat = mls_welcome
+  });
+
+  it('should decode MLSMessage-wrapped Welcome round-trip', async () => {
+    const groupId = new Uint8Array(32).fill(0x01);
+    const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
+
+    const bobKP = await generateMlsKeyPackage(TEST_PUBKEY_BOB);
+    const addResult = await addMlsGroupMembers(alice.state, [
+      bobKP.keyPackage,
+    ]);
+
+    const encoded = encodeWelcome(addResult.welcome);
     const decoded = decodeWelcome(encoded);
+    expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
+    expect(decoded.secrets.length).toBe(addResult.welcome.secrets.length);
+  });
+
+  it('should decode raw Welcome as fallback', async () => {
+    const groupId = new Uint8Array(32).fill(0x01);
+    const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
+
+    const bobKP = await generateMlsKeyPackage(TEST_PUBKEY_BOB);
+    const addResult = await addMlsGroupMembers(alice.state, [
+      bobKP.keyPackage,
+    ]);
+
+    // Encode as raw (not MLSMessage-wrapped) — for backward compatibility
+    const rawEncoded = encodeWelcomeRaw(addResult.welcome);
+    // Raw welcome does NOT start with 0x0001 0x0003
+    expect(rawEncoded[2] === 0x00 && rawEncoded[3] === 0x03).toBe(false);
+
+    // decodeWelcome should fall back to raw decoding
+    const decoded = decodeWelcome(rawEncoded);
+    expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
+  });
+
+  it('encodeWelcomeRaw/decodeWelcomeRaw should round-trip', async () => {
+    const groupId = new Uint8Array(32).fill(0x01);
+    const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
+
+    const bobKP = await generateMlsKeyPackage(TEST_PUBKEY_BOB);
+    const addResult = await addMlsGroupMembers(alice.state, [
+      bobKP.keyPackage,
+    ]);
+
+    const rawEncoded = encodeWelcomeRaw(addResult.welcome);
+    const decoded = decodeWelcomeRaw(rawEncoded);
     expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
     expect(decoded.secrets.length).toBe(addResult.welcome.secrets.length);
   });
@@ -402,7 +456,24 @@ describe('State serialization', () => {
 
   it('should throw on invalid Welcome bytes', () => {
     expect(() => decodeWelcome(new Uint8Array([0x00]))).toThrow(
-      'Failed to decode Welcome'
+      'Welcome data too short'
+    );
+  });
+
+  it('should reject MLSMessage with wrong wireformat for Welcome', async () => {
+    const groupId = new Uint8Array(32).fill(0x01);
+    const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
+
+    // Encode a KeyPackage as MLSMessage (wireformat = mls_key_package, not mls_welcome)
+    const aliceKP = await generateMlsKeyPackage(TEST_PUBKEY_ALICE);
+    const kpWrapped = encodeMlsMessage({
+      version: 'mls10',
+      wireformat: 'mls_key_package',
+      keyPackage: aliceKP.keyPackage,
+    });
+
+    expect(() => decodeWelcome(kpWrapped)).toThrow(
+      'Expected MLSMessage with wireformat mls_welcome'
     );
   });
 });
@@ -597,8 +668,12 @@ describe('Full MLS integration flow', () => {
     expect(aliceEncoded.length).toBeGreaterThan(100);
     expect(bobEncoded.length).toBeGreaterThan(100);
 
-    // 8. Welcome can be serialized
+    // 8. Welcome serializes as MLSMessage-wrapped (MIP-02)
     const welcomeBytes = encodeWelcome(addResult.welcome);
+    expect(welcomeBytes[0]).toBe(0x00);
+    expect(welcomeBytes[1]).toBe(0x01); // version
+    expect(welcomeBytes[2]).toBe(0x00);
+    expect(welcomeBytes[3]).toBe(0x03); // wireformat = mls_welcome
     const welcomeDecoded = decodeWelcome(welcomeBytes);
     expect(welcomeDecoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
   });

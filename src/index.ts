@@ -183,8 +183,11 @@ export {
   decodeMlsState,
   encodeWelcome,
   decodeWelcome,
+  encodeWelcomeRaw,
+  decodeWelcomeRaw,
   encodeKeyPackage,
   decodeKeyPackage,
+  groupStateToClientState,
 } from './mls.js';
 
 export type {
@@ -193,4 +196,11 @@ export type {
   MlsGroupResult,
   AddMembersResult,
   JoinGroupResult,
+  CiphersuiteName,
+  ClientState,
+  GroupState,
+  KeyPackage,
+  PrivateKeyPackage,
+  Welcome,
+  MLSMessage,
 } from './mls.js';

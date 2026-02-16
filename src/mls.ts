@@ -16,6 +16,8 @@ import {
   mlsExporter,
   encodeGroupState as tsEncodeGroupState,
   decodeGroupState as tsDecodeGroupState,
+  encodeMlsMessage,
+  decodeMlsMessage,
   getCiphersuiteImpl as tsGetCiphersuiteImpl,
   getCiphersuiteFromName,
   ciphersuites as tsCiphersuites,
@@ -23,6 +25,8 @@ import {
   defaultLifetime,
   emptyPskIndex,
 } from 'ts-mls';
+
+import { defaultClientConfig } from 'ts-mls/clientConfig.js';
 
 // Import encode/decode for KeyPackage and Welcome from subpaths
 import {
@@ -484,25 +488,84 @@ export function decodeMlsState(bytes: Uint8Array): GroupState {
 }
 
 /**
- * Encode a Welcome message to wire format.
+ * Encode a Welcome message to MLSMessage-wrapped wire format.
+ *
+ * Per MIP-02, Welcome content in kind:444 events is a serialized MLSMessage
+ * containing the Welcome object (NOT raw Welcome bytes).
+ *
+ * Wire format: version (0x0001) + wireformat (0x0003 = mls_welcome) + welcome body
  */
 export function encodeWelcome(welcome: TsWelcome): Uint8Array {
-  return tsEncodeWelcome(welcome);
+  return encodeMlsMessage({
+    version: 'mls10',
+    wireformat: 'mls_welcome',
+    welcome,
+  });
 }
 
 /**
  * Decode a Welcome message from wire format.
+ *
+ * Per MIP-02, expects MLSMessage-wrapped Welcome (starts with 0x0001 0x0003).
+ * Falls back to raw Welcome decoding for compatibility.
  */
 export function decodeWelcome(bytes: Uint8Array): TsWelcome {
+  if (bytes.length < 4) {
+    throw new Error('Welcome data too short');
+  }
+
+  // Try MLSMessage-wrapped first (expected per MIP-02)
+  // MLSMessage starts with version 0x0001, then wireformat
+  if (bytes[0] === 0x00 && bytes[1] === 0x01) {
+    const mlsResult = decodeMlsMessage(bytes, 0);
+    if (mlsResult) {
+      const [msg] = mlsResult;
+      if (msg.wireformat === 'mls_welcome') {
+        return msg.welcome;
+      }
+      throw new Error(
+        `Expected MLSMessage with wireformat mls_welcome, got ${msg.wireformat}`
+      );
+    }
+  }
+
+  // Fallback: try raw Welcome decoding for compatibility
+  const rawResult = tsDecodeWelcome(bytes, 0);
+  if (!rawResult) {
+    throw new Error('Failed to decode Welcome message');
+  }
+  return rawResult[0];
+}
+
+/**
+ * Encode a Welcome message to raw TLS wire format (NOT MLSMessage-wrapped).
+ *
+ * Most callers should use `encodeWelcome()` which produces the MLSMessage-wrapped
+ * format required by MIP-02. This raw variant is for advanced/internal use only.
+ */
+export function encodeWelcomeRaw(welcome: TsWelcome): Uint8Array {
+  return tsEncodeWelcome(welcome);
+}
+
+/**
+ * Decode a Welcome message from raw TLS wire format (NOT MLSMessage-wrapped).
+ *
+ * Most callers should use `decodeWelcome()` which handles the MLSMessage-wrapped
+ * format used by MIP-02. This raw variant is for advanced/internal use only.
+ */
+export function decodeWelcomeRaw(bytes: Uint8Array): TsWelcome {
   const result = tsDecodeWelcome(bytes, 0);
   if (!result) {
-    throw new Error('Failed to decode Welcome message');
+    throw new Error('Failed to decode raw Welcome message');
   }
   return result[0];
 }
 
 /**
  * Encode a KeyPackage to raw TLS wire format (NOT MLSMessage-wrapped).
+ *
+ * Per MIP-00, KeyPackage content in kind:443 events uses raw TLS-serialized
+ * KeyPackage bytes (NOT MLSMessage-wrapped).
  */
 export function encodeKeyPackage(keyPackage: TsKeyPackage): Uint8Array {
   return tsEncodeKeyPackage(keyPackage);
@@ -520,6 +583,25 @@ export function decodeKeyPackage(bytes: Uint8Array): TsKeyPackage {
   return result[0];
 }
 
+// ─── GroupState → ClientState conversion ────────────────────────────────────
+
+/**
+ * Convert a GroupState (from deserialization) to a ClientState
+ * by adding the default client configuration.
+ *
+ * This is needed when loading persisted MLS state, since only GroupState
+ * is serializable — ClientState includes non-serializable runtime config.
+ *
+ * @param groupState - The deserialized GroupState
+ * @returns A ClientState with default client configuration
+ */
+export function groupStateToClientState(groupState: GroupState): ClientState {
+  return {
+    ...groupState,
+    clientConfig: defaultClientConfig,
+  };
+}
+
 // ─── Helper: Hex to Bytes ───────────────────────────────────────────────────
 
 function hexToBytes(hex: string): Uint8Array {
@@ -529,3 +611,17 @@ function hexToBytes(hex: string): Uint8Array {
   }
   return bytes;
 }
+
+// ─── Re-exported Types ──────────────────────────────────────────────────────
+// Re-export ts-mls types so consumers don't need a direct ts-mls dependency.
+
+export type {
+  CiphersuiteName,
+  ClientState,
+  GroupState,
+  MLSMessage,
+};
+
+export type { TsKeyPackage as KeyPackage };
+export type { TsPrivateKeyPackage as PrivateKeyPackage };
+export type { TsWelcome as Welcome };

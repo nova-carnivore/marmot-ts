@@ -4,7 +4,7 @@
  * Encoding, validation, and helper functions.
  */
 
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { ContentEncoding, NostrTag } from './types.js';
 
 // ─── Encoding ───────────────────────────────────────────────────────────────

@@ -5,9 +5,9 @@
  * Supports NIP-07 (browser extension), NIP-46 (remote/bunker), and private key signers.
  */
 
-import { schnorr } from '@noble/curves/secp256k1';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
-import { sha256 } from '@noble/hashes/sha256';
+import { schnorr } from '@noble/curves/secp256k1.js';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { v2 as nip44 } from 'nostr-tools/nip44';
 import type { UnsignedEvent, SignedEvent } from './types.js';
 
@@ -83,7 +83,7 @@ export class PrivateKeySigner implements MarmotSigner {
   async signEvent(event: UnsignedEvent): Promise<SignedEvent> {
     const withPubkey = { ...event, pubkey: this._publicKeyHex };
     const id = computeEventId(withPubkey);
-    const sigBytes = schnorr.sign(id, this._privateKey);
+    const sigBytes = schnorr.sign(hexToBytes(id), this._privateKey);
     const sig = bytesToHex(sigBytes);
     return { ...withPubkey, id, sig };
   }

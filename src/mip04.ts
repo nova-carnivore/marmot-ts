@@ -13,7 +13,7 @@ import type {
 } from './types.js';
 import { MEDIA_VERSION, MEDIA_VERSION_DEPRECATED } from './types.js';
 import { randomBytes, concatBytes, canonicalizeMimeType, bytesToHex } from './utils.js';
-import { hexToBytes } from '@noble/hashes/utils';
+import { hexToBytes } from '@noble/hashes/utils.js';
 import {
   sha256Hash,
   sha256Hex,

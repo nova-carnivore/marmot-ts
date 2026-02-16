@@ -5,11 +5,11 @@
  * and ephemeral keypair generation.
  */
 
-import { sha256 } from '@noble/hashes/sha256';
-import { hkdf } from '@noble/hashes/hkdf';
-import { hmac } from '@noble/hashes/hmac';
-import { secp256k1 } from '@noble/curves/secp256k1';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { hkdf } from '@noble/hashes/hkdf.js';
+import { hmac } from '@noble/hashes/hmac.js';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import { concatBytes, randomBytes } from './utils.js';
 
 // ─── Hashing ────────────────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ export function computeConversationKey(
   receiverPubkeyHex: string
 ): Uint8Array {
   // secp256k1 ECDH: shared point
-  const receiverPoint = secp256k1.ProjectivePoint.fromHex('02' + receiverPubkeyHex);
+  const receiverPoint = secp256k1.Point.fromHex('02' + receiverPubkeyHex);
   const sharedPoint = receiverPoint.multiply(BigInt('0x' + bytesToHex(senderPrivateKey)));
   const sharedX = sharedPoint.toAffine().x;
   // Convert field element to 32 bytes

@@ -13,7 +13,7 @@ TypeScript library for the **[Marmot Protocol](https://github.com/marmot-protoco
 - 📦 **Modular** — import only what you need (`marmot-ts/mip00`, etc.)
 - 🔑 **Signer abstraction** — NIP-07, NIP-46, and private key signers
 - 🛡️ **Security-first** — credential validation, unsigned inner events, ephemeral keypairs
-- 🧪 **254 tests** — comprehensive coverage across all MIPs + MLS runtime
+- 🧪 **258 tests** — comprehensive coverage across all MIPs + MLS runtime
 - 🌍 **Cross-platform** — Node.js 20+, Bun, Deno, browsers
 
 ## Install
@@ -295,6 +295,16 @@ The library now provides **built-in MLS support** via the `marmot-ts/mls` module
 - **Welcome processing** — join groups with matching exporter secrets
 - **State serialization** — encode/decode for persistence
 
+### Wire Format (per MIP specs)
+
+| Object | Wire Format | Details |
+|--------|------------|---------|
+| **KeyPackage** (MIP-00) | Raw TLS-serialized | `encodeKeyPackage()` — starts with `0x0001` (version) + ciphersuite |
+| **Welcome** (MIP-02) | MLSMessage-wrapped | `encodeWelcome()` — starts with `0x0001 0x0003` (version + mls_welcome wireformat) |
+
+`parseKeyPackageBytes()` primarily expects raw format, with MLSMessage detection as a fallback.
+`decodeWelcome()` primarily expects MLSMessage-wrapped format, with raw fallback for compatibility.
+
 The Marmot protocol flow:
 1. **marmot-ts/mls** generates MLS KeyPackages, Welcomes, Commits via ts-mls
 2. **marmot-ts** wraps them in Nostr events with proper encoding, encryption, and metadata
@@ -318,7 +328,7 @@ marmot-ts/
 │   └── mip04.ts      # Encrypted Media + Blossom storage
 ├── examples/
 │   └── mls-interop.ts # MLS lifecycle example
-└── test/             # 254 tests across all modules
+└── test/             # 258 tests across all modules
 ```
 
 ## Related Projects
