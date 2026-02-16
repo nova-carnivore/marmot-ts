@@ -50,6 +50,22 @@
     "./mls": {
       "import": "./dist/mls.js",
       "types": "./dist/mls.d.ts"
+    },
+    "./social": {
+      "import": "./dist/social.js",
+      "types": "./dist/social.d.ts"
+    },
+    "./keypackage-manager": {
+      "import": "./dist/keypackage-manager.js",
+      "types": "./dist/keypackage-manager.d.ts"
+    },
+    "./group-management": {
+      "import": "./dist/group-management.js",
+      "types": "./dist/group-management.d.ts"
+    },
+    "./welcome": {
+      "import": "./dist/welcome.js",
+      "types": "./dist/welcome.d.ts"
     }
   },
   "files": [

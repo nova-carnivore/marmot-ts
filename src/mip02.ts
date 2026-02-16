@@ -327,10 +327,15 @@ export function isInitialGroupCreation(commitEpoch: number): boolean {
  *
  * IMPORTANT: Most relays reject events with timestamps in the future (typically
  * allowing only 10-15 minutes of clock skew). To prevent rejection while still
- * providing privacy, we randomize ONLY into the past (0 to 48 hours ago).
+ * providing privacy, we randomize ONLY into the past.
+ *
+ * WORKAROUND: Reduced range to 2-120 minutes (was 0-48 hours) to work around
+ * marmot-cli event fetching issue with old timestamps. See:
+ * https://github.com/kai-familiar/marmot-cli/issues/8
  */
 function randomizeTimestamp(timestamp: number): number {
-  const maxOffset = 48 * 60 * 60; // 48 hours in seconds
-  const randomOffset = Math.floor(Math.random() * maxOffset); // 0 to 48 hours
-  return timestamp - randomOffset; // Only subtract (go into the past)
+  const minOffset = 2 * 60;      // 2 minutes in seconds
+  const maxOffset = 120 * 60;    // 120 minutes in seconds
+  const randomOffset = minOffset + Math.floor(Math.random() * (maxOffset - minOffset));
+  return timestamp - randomOffset; // Subtract 2-120 minutes
 }

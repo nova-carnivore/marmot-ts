@@ -9,7 +9,7 @@ TypeScript library for the **[Marmot Protocol](https://github.com/marmot-protoco
 
 > **⚠️ Status: Work In Progress — Not Production Ready**
 >
-> This library implements all MIP specifications and has 258+ passing tests, but **MLS interoperability with [MDK](https://github.com/marmot-protocol/mdk) (the Rust reference implementation) is incomplete.**
+> This library implements all MIP specifications and has 300+ passing tests, but **MLS interoperability with [MDK](https://github.com/marmot-protocol/mdk) (the Rust reference implementation) is incomplete.**
 >
 > **What works:**
 > - ✅ MDK → marmot-ts: Receiving Welcome events from MDK, joining MLS groups, decrypting group data (v2 wire format)
@@ -17,6 +17,7 @@ TypeScript library for the **[Marmot Protocol](https://github.com/marmot-protoco
 > - ✅ NIP-59 gift wrapping for Welcome events
 > - ✅ MLS KeyPackage generation, group creation, Welcome/Commit production (via ts-mls)
 > - ✅ All crypto: Ed25519, X25519, HKDF, ChaCha20-Poly1305
+> - ✅ **marmot-web ↔ marmot-web:** Fully working bidirectional chat (verified 2026-02-16)
 > - ✅ Node.js 20+, Bun, Deno — all CI green
 >
 > **What doesn't work:**
@@ -33,11 +34,32 @@ TypeScript library for the **[Marmot Protocol](https://github.com/marmot-protoco
 ## Features
 
 - 🔐 **Full MIP implementation** — MIP-00 through MIP-04
-- 📦 **Modular** — import only what you need (`marmot-ts/mip00`, etc.)
+- ✅ **MLS RFC 9420 encryption** — via ts-mls
+- ✅ **NIP-59 gift-wrapped Welcomes** — full privacy with ephemeral keypairs
+- ✅ **0xf2ee extension support** (Marmot Group Data) — **FIXED 2026-02-16**
+- ✅ **KeyPackage creation** with required extensions (0xf2ee, 0x000a)
+- ✅ **Group creation + member management** — add members, Welcome flow
+- ✅ **Bidirectional messaging** — marmot-web ↔ marmot-web verified
+- ✅ **Follow list management** (kind:3) — create, parse, modify follow events
+- ✅ **KeyPackage lifecycle** — validation, extension checking, availability tracking
+- 📦 **Modular** — import only what you need (`marmot-ts/mip00`, `marmot-ts/social`, etc.)
 - 🔑 **Signer abstraction** — NIP-07, NIP-46, and private key signers
 - 🛡️ **Security-first** — credential validation, unsigned inner events, ephemeral keypairs
-- 🧪 **258 tests** — comprehensive coverage across all MIPs + MLS runtime
+- 🧪 **300 tests** — comprehensive coverage across all MIPs + MLS runtime
 - 🌍 **Cross-platform** — Node.js 20+, Bun, Deno, browsers
+
+## Known Issues
+
+- ⚠️ **Timestamp workaround:** NIP-59 timestamp randomization reduced to 2-120 minutes (was 0-48 hours) to work around marmot-cli fetching issue
+- ⚠️ **marmot-cli interop:** Welcome events published by marmot-web are NOT retrieved by marmot-cli (see [kai-familiar/marmot-cli#8](https://github.com/kai-familiar/marmot-cli/issues/8))
+- ℹ️ **marmot-web ↔ marmot-web:** Fully working (bidirectional chat verified)
+
+## Recent Fixes (2026-02-16)
+
+- **0xf2ee Extension Bug:** `createMlsGroup()` was called with empty extensions array, preventing Welcome recipients from extracting group metadata. Fixed by adding `GroupContextExtension` with serialized Marmot Group Data.
+- **Welcome subscription window:** Widened from 24h to 48h to match NIP-59 timestamp randomization range.
+- **Timestamp randomization:** Reduced to 2-120 minutes as pragmatic workaround for relay compatibility.
+- **New modules:** Added `social.ts`, `keypackage-manager.ts`, `group-management.ts`, and `welcome.ts` with reusable helpers extracted from marmot-web.
 
 ## Install
 
@@ -64,6 +86,95 @@ import {
 // Generate a test keypair
 const keypair = generateKeypair();
 const signer = new PrivateKeySigner(keypair.privateKeyHex);
+```
+
+## Usage Examples
+
+### Follow List Management
+
+```typescript
+import {
+  publishFollowList,
+  parseFollowList,
+  addToFollowList,
+} from 'marmot-ts/social';
+
+// Publish a follow list
+const currentFollows = ['pubkey1...', 'pubkey2...'];
+const newFollows = addToFollowList(currentFollows, 'newPubkey...');
+const event = await publishFollowList(signer, newFollows);
+await pool.publish(relays, event);
+
+// Parse a follow list from a kind:3 event
+const follows = parseFollowList(receivedEvent);
+```
+
+### KeyPackage Management
+
+```typescript
+import { KeyPackageManager } from 'marmot-ts/keypackage-manager';
+
+const kpManager = new KeyPackageManager();
+
+// Validate a KeyPackage event
+const result = kpManager.validateKeyPackageEvent(keyPackageEvent);
+console.log(result.hasRequiredExtensions); // true/false
+console.log(result.errors); // any validation errors
+
+// Filter to only valid KeyPackages
+const valid = kpManager.filterValid(keyPackageEvents);
+
+// Select the best KeyPackage for a pubkey
+const best = kpManager.selectBest(keyPackageEvents, contactPubkey);
+
+// Check availability for multiple contacts
+const availability = kpManager.checkAvailability(events, contactPubkeys);
+// Map<string, boolean>
+```
+
+### Group Member Management
+
+```typescript
+import { addGroupMembers } from 'marmot-ts/group-management';
+import { wrapWelcomes } from 'marmot-ts/welcome';
+
+// Add members (after fetching their KeyPackages from relays)
+const result = await addGroupMembers(fetchedKeyPackages, {
+  mlsState: currentState,
+  relays: ['wss://relay.example.com'],
+  senderPubkey: myPubkey,
+});
+
+// Gift-wrap and send the Welcome events
+const wrapped = await wrapWelcomes(signer, result.welcomeRumors.map(r => ({
+  recipientPubkey: r.recipientPubkey,
+  welcomeRumor: r.rumor,
+})));
+
+for (const w of wrapped) {
+  if (w.success) await pool.publish(relays, w.giftWrap);
+}
+```
+
+### Complete Welcome Flow
+
+```typescript
+import { createAndWrapWelcomes } from 'marmot-ts/welcome';
+
+// Highest-level helper: create + gift-wrap Welcomes in one call
+const results = await createAndWrapWelcomes(signer, {
+  senderPubkey: myPubkey,
+  welcomeBytes: encodedWelcome,
+  relays: ['wss://relay.example.com'],
+  recipients: [
+    { pubkey: 'member1...', keyPackageEventId: 'kp-event-1' },
+    { pubkey: 'member2...', keyPackageEventId: 'kp-event-2' },
+  ],
+});
+
+for (const r of results) {
+  if (r.success) await pool.publish(relays, r.giftWrap);
+}
 ```
 
 ## MIP Implementations
@@ -338,20 +449,24 @@ The Marmot protocol flow:
 ```
 marmot-ts/
 ├── src/
-│   ├── index.ts      # Main exports
-│   ├── types.ts      # All type definitions
-│   ├── utils.ts      # Encoding, validation, helpers
-│   ├── crypto.ts     # SHA-256, HKDF, ChaCha20-Poly1305, secp256k1
-│   ├── signer.ts     # MarmotSigner interface + implementations
-│   ├── mls.ts        # MLS runtime operations (ts-mls wrapper)
-│   ├── mip00.ts      # Credentials & Key Packages (kind: 443)
-│   ├── mip01.ts      # Group Construction & Marmot Group Data (0xF2EE)
-│   ├── mip02.ts      # Welcome Events (kind: 444) + NIP-59
-│   ├── mip03.ts      # Group Messages (kind: 445) + ephemeral keys
-│   └── mip04.ts      # Encrypted Media + Blossom storage
+│   ├── index.ts               # Main exports
+│   ├── types.ts               # All type definitions
+│   ├── utils.ts               # Encoding, validation, helpers
+│   ├── crypto.ts              # SHA-256, HKDF, ChaCha20-Poly1305, secp256k1
+│   ├── signer.ts              # MarmotSigner interface + implementations
+│   ├── mls.ts                 # MLS runtime operations (ts-mls wrapper)
+│   ├── mip00.ts               # Credentials & Key Packages (kind: 443)
+│   ├── mip01.ts               # Group Construction & Marmot Group Data (0xF2EE)
+│   ├── mip02.ts               # Welcome Events (kind: 444) + NIP-59
+│   ├── mip03.ts               # Group Messages (kind: 445) + ephemeral keys
+│   ├── mip04.ts               # Encrypted Media + Blossom storage
+│   ├── social.ts              # Follow list management (kind: 3)
+│   ├── keypackage-manager.ts  # KeyPackage lifecycle & validation
+│   ├── group-management.ts    # Group member add/leave helpers
+│   └── welcome.ts             # Complete Welcome publishing flow
 ├── examples/
-│   └── mls-interop.ts # MLS lifecycle example
-└── test/             # 258 tests across all modules
+│   └── mls-interop.ts         # MLS lifecycle example
+└── test/                      # 300 tests across all modules
 ```
 
 ## Related Projects
@@ -360,6 +475,7 @@ marmot-ts/
 - [MDK](https://github.com/marmot-protocol/mdk) — Rust implementation
 - [ts-mls](https://github.com/LukaJCB/ts-mls) — Pure TypeScript MLS (RFC 9420)
 - [nostr-tools](https://github.com/nbd-wtf/nostr-tools) — Nostr client library
+- [marmot-web](https://github.com/nova-carnivore/marmot-web) — Reference web client
 
 ## License
 

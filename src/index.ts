@@ -213,3 +213,36 @@ export type {
   MlsFramedMessage,
   MlsWelcomeMessage,
 } from './mls.js';
+
+// ─── Social (Follow List Management) ───────────────────────────────────────
+export {
+  FOLLOW_LIST_KIND,
+  createFollowListEvent,
+  publishFollowList,
+  parseFollowList,
+  addToFollowList,
+  removeFromFollowList,
+} from './social.js';
+
+// ─── KeyPackage Manager ────────────────────────────────────────────────────
+export { KeyPackageManager } from './keypackage-manager.js';
+export type {
+  KeyPackageValidationResult,
+  FetchKeyPackagesOptions,
+} from './keypackage-manager.js';
+
+// ─── Group Management ──────────────────────────────────────────────────────
+export { addGroupMembers, leaveGroup } from './group-management.js';
+export type {
+  AddGroupMembersResult,
+  FetchedKeyPackage,
+  AddGroupMembersOptions,
+} from './group-management.js';
+
+// ─── Welcome Flow ──────────────────────────────────────────────────────────
+export { wrapWelcomes, createAndWrapWelcomes } from './welcome.js';
+export type {
+  WelcomeInfo,
+  PublishWelcomeResult,
+  CreateWelcomesOptions,
+} from './welcome.js';
