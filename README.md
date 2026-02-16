@@ -13,7 +13,7 @@ TypeScript library for the **[Marmot Protocol](https://github.com/marmot-protoco
 - 📦 **Modular** — import only what you need (`marmot-ts/mip00`, etc.)
 - 🔑 **Signer abstraction** — NIP-07, NIP-46, and private key signers
 - 🛡️ **Security-first** — credential validation, unsigned inner events, ephemeral keypairs
-- 🧪 **217 tests** — comprehensive coverage across all MIPs
+- 🧪 **254 tests** — comprehensive coverage across all MIPs + MLS runtime
 - 🌍 **Cross-platform** — Node.js 20+, Bun, Deno, browsers
 
 ## Install
@@ -240,18 +240,63 @@ This library enforces critical security requirements from the Marmot spec:
 | **Admin authorization** | `verifyAdminAuthorization()` — checks admin_pubkeys for non-self-update commits |
 | **TLS serialization** | `serializeMarmotGroupData()` — exact byte-level format |
 
-## MLS Integration
+### MLS Runtime Operations
 
-This library handles the **Nostr protocol layer** of Marmot. For MLS cryptographic operations, use [ts-mls](https://github.com/LukaJCB/ts-mls) (pure TypeScript MLS implementation):
+The `marmot-ts/mls` module wraps [ts-mls](https://github.com/LukaJCB/ts-mls) to provide protocol-level MLS operations. This ensures all Marmot clients use compatible wire formats and ciphersuites.
 
 ```typescript
-import { MlsClient } from 'ts-mls';
-// Use ts-mls for: KeyPackage generation, Welcome processing,
-// group creation, commit/proposal handling, message encryption
+import {
+  generateMlsKeyPackage,
+  parseKeyPackageBytes,
+  parseKeyPackageFromEvent,
+  createMlsGroup,
+  addMlsGroupMembers,
+  joinMlsGroupFromWelcome,
+  deriveExporterSecret,
+  DEFAULT_CIPHERSUITE,
+  encodeWelcome,
+  decodeWelcome,
+} from 'marmot-ts/mls';
+
+// Generate a KeyPackage (raw TLS format, compatible with all Marmot clients)
+const { keyPackageBytes, keyPackage, privateKeyPackage } =
+  await generateMlsKeyPackage(nostrPubkeyHex);
+
+// Parse a KeyPackage from relay data (handles both raw and MLSMessage-wrapped)
+const parsed = parseKeyPackageBytes(keyPackageBytes);
+
+// Parse directly from a kind:443 Nostr event
+const { parsed: eventData, mlsKeyPackage } =
+  parseKeyPackageFromEvent(receivedEvent);
+
+// Create a group
+const group = await createMlsGroup(groupIdBytes, myPubkeyHex);
+console.log('Exporter secret:', group.exporterSecret);
+
+// Add a member — produces Welcome + Commit
+const { welcome, newState, exporterSecret } =
+  await addMlsGroupMembers(group.state, [memberKeyPackage]);
+
+// Member joins from Welcome — exporter secrets will match
+const joined = await joinMlsGroupFromWelcome(
+  welcome, memberKeyPackage, memberPrivateKeyPackage
+);
+// joined.exporterSecret === exporterSecret ✅
 ```
 
+## MLS Integration
+
+The library now provides **built-in MLS support** via the `marmot-ts/mls` module, wrapping [ts-mls](https://github.com/LukaJCB/ts-mls) for protocol-level MLS operations:
+
+- **KeyPackage generation** — raw TLS format compatible with marmot-cli, MDK, and marmot-chat
+- **KeyPackage parsing** — handles raw and MLSMessage-wrapped formats
+- **Group creation** — with automatic exporter secret derivation
+- **Member management** — Add proposals + Commit + Welcome generation
+- **Welcome processing** — join groups with matching exporter secrets
+- **State serialization** — encode/decode for persistence
+
 The Marmot protocol flow:
-1. **ts-mls** generates MLS KeyPackages, Welcomes, Commits, and encrypts messages
+1. **marmot-ts/mls** generates MLS KeyPackages, Welcomes, Commits via ts-mls
 2. **marmot-ts** wraps them in Nostr events with proper encoding, encryption, and metadata
 3. **nostr-tools** publishes/subscribes to relay events
 
@@ -265,12 +310,15 @@ marmot-ts/
 │   ├── utils.ts      # Encoding, validation, helpers
 │   ├── crypto.ts     # SHA-256, HKDF, ChaCha20-Poly1305, secp256k1
 │   ├── signer.ts     # MarmotSigner interface + implementations
+│   ├── mls.ts        # MLS runtime operations (ts-mls wrapper)
 │   ├── mip00.ts      # Credentials & Key Packages (kind: 443)
 │   ├── mip01.ts      # Group Construction & Marmot Group Data (0xF2EE)
 │   ├── mip02.ts      # Welcome Events (kind: 444) + NIP-59
 │   ├── mip03.ts      # Group Messages (kind: 445) + ephemeral keys
 │   └── mip04.ts      # Encrypted Media + Blossom storage
-└── test/             # 217 tests across all modules
+├── examples/
+│   └── mls-interop.ts # MLS lifecycle example
+└── test/             # 254 tests across all modules
 ```
 
 ## Related Projects

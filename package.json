@@ -46,6 +46,10 @@
     "./types": {
       "import": "./dist/types.js",
       "types": "./dist/types.d.ts"
+    },
+    "./mls": {
+      "import": "./dist/mls.js",
+      "types": "./dist/mls.d.ts"
     }
   },
   "files": [
@@ -91,17 +95,24 @@
     "node": ">=20"
   },
   "dependencies": {
-    "nostr-tools": "^2.10.4",
+    "@hpke/chacha20poly1305": "^1.7.1",
+    "@hpke/dhkem-x448": "^1.6.4",
+    "@hpke/hybridkem-x-wing": "^0.6.1",
+    "@hpke/ml-kem": "^0.2.1",
+    "@noble/ciphers": "^2.1.1",
     "@noble/curves": "^1.8.1",
-    "@noble/hashes": "^1.7.1"
+    "@noble/hashes": "^1.7.1",
+    "@noble/post-quantum": "^0.5.2",
+    "nostr-tools": "^2.10.4",
+    "ts-mls": "^1.6.1"
   },
   "devDependencies": {
-    "typescript": "^5.7.3",
-    "vitest": "^3.0.5",
+    "@eslint/js": "^9.20.0",
     "@types/node": "^22.13.4",
     "eslint": "^9.20.0",
-    "@eslint/js": "^9.20.0",
+    "prettier": "^3.5.1",
+    "typescript": "^5.7.3",
     "typescript-eslint": "^8.24.0",
-    "prettier": "^3.5.1"
+    "vitest": "^3.0.5"
   }
 }

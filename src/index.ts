@@ -164,3 +164,33 @@ export {
   isSupportedVersion,
   isDeprecatedVersion,
 } from './mip04.js';
+
+// ─── MLS Runtime Operations ────────────────────────────────────────────────
+export {
+  DEFAULT_CIPHERSUITE,
+  getCiphersuiteImpl,
+  getSupportedCiphersuites,
+  ciphersuiteNameToId,
+  ciphersuiteIdToName,
+  generateMlsKeyPackage,
+  parseKeyPackageBytes,
+  parseKeyPackageFromEvent,
+  createMlsGroup,
+  addMlsGroupMembers,
+  joinMlsGroupFromWelcome,
+  deriveExporterSecret,
+  encodeMlsState,
+  decodeMlsState,
+  encodeWelcome,
+  decodeWelcome,
+  encodeKeyPackage,
+  decodeKeyPackage,
+} from './mls.js';
+
+export type {
+  GeneratedKeyPackage,
+  ParsedKeyPackageFromEvent,
+  MlsGroupResult,
+  AddMembersResult,
+  JoinGroupResult,
+} from './mls.js';
