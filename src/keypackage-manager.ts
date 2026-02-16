@@ -81,7 +81,9 @@ export class KeyPackageManager {
           createdAt: event.created_at ?? 0,
         },
         hasRequiredExtensions: false,
-        errors: [`Failed to parse KeyPackage event: ${err instanceof Error ? err.message : String(err)}`],
+        errors: [
+          `Failed to parse KeyPackage event: ${err instanceof Error ? err.message : String(err)}`,
+        ],
       };
     }
 
@@ -98,7 +100,9 @@ export class KeyPackageManager {
       // Parse raw for extension checking
       rawParsed = parseKeyPackageRaw(parsed.keyPackageData);
     } catch (err) {
-      errors.push(`Invalid MLS KeyPackage data: ${err instanceof Error ? err.message : String(err)}`);
+      errors.push(
+        `Invalid MLS KeyPackage data: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
 
     // Check required Marmot extensions
@@ -187,10 +191,7 @@ export class KeyPackageManager {
    * @param pubkeys - Array of pubkeys to check
    * @returns Map of pubkey → boolean (has valid KeyPackage)
    */
-  checkAvailability(
-    events: SignedEvent[],
-    pubkeys: string[]
-  ): Map<string, boolean> {
+  checkAvailability(events: SignedEvent[], pubkeys: string[]): Map<string, boolean> {
     const result = new Map<string, boolean>();
     const validByPubkey = new Map<string, boolean>();
 

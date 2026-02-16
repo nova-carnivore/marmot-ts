@@ -334,8 +334,8 @@ export function isInitialGroupCreation(commitEpoch: number): boolean {
  * https://github.com/kai-familiar/marmot-cli/issues/8
  */
 function randomizeTimestamp(timestamp: number): number {
-  const minOffset = 2 * 60;      // 2 minutes in seconds
-  const maxOffset = 120 * 60;    // 120 minutes in seconds
+  const minOffset = 2 * 60; // 2 minutes in seconds
+  const maxOffset = 120 * 60; // 120 minutes in seconds
   const randomOffset = minOffset + Math.floor(Math.random() * (maxOffset - minOffset));
   return timestamp - randomOffset; // Subtract 2-120 minutes
 }

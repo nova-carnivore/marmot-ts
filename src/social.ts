@@ -95,10 +95,7 @@ export function parseFollowList(event: UnsignedEvent): string[] {
  * @param newPubkey - Pubkey to add
  * @returns Updated follow list (deduplicated)
  */
-export function addToFollowList(
-  currentFollows: string[],
-  newPubkey: string
-): string[] {
+export function addToFollowList(currentFollows: string[], newPubkey: string): string[] {
   if (!isValidPubkey(newPubkey)) {
     throw new Error(`Invalid pubkey: ${newPubkey}`);
   }

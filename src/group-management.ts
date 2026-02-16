@@ -9,11 +9,7 @@
  */
 
 import type { UnsignedEvent } from './types.js';
-import {
-  addMlsGroupMembers,
-  encodeWelcome,
-  parseKeyPackageBytes,
-} from './mls.js';
+import { addMlsGroupMembers, encodeWelcome, parseKeyPackageBytes } from './mls.js';
 import type {
   ClientState,
   KeyPackage,
@@ -210,9 +206,7 @@ export async function addGroupMembers(
  * @param _mlsState - Current MLS group state (unused until self-remove is supported)
  * @returns void — consumer must handle local state cleanup
  */
-export async function leaveGroup(
-  _mlsState: ClientState
-): Promise<void> {
+export async function leaveGroup(_mlsState: ClientState): Promise<void> {
   void _mlsState;
   // TODO: When ts-mls supports self-remove:
   // 1. const removeProposal = await createSelfRemove(mlsState);
