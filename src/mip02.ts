@@ -23,6 +23,7 @@ import {
 } from './utils.js';
 import { generateEphemeralKeypair } from './crypto.js';
 import type { MarmotSigner } from './signer.js';
+import { PrivateKeySigner } from './signer.js';
 
 // ─── Welcome Event Creation ─────────────────────────────────────────────────
 
@@ -112,7 +113,7 @@ export async function giftWrapWelcome(
   // Step 1: Create the rumor (already unsigned, no sig)
   const rumorJson = JSON.stringify(welcomeRumor);
 
-  // Step 2: Create the seal (encrypt rumor with NIP-44 to recipient)
+  // Step 2: Create the seal (encrypt rumor with sender's key to recipient)
   const encryptedRumor = await signer.nip44Encrypt(recipientPubkey, rumorJson);
 
   const sealEvent: UnsignedEvent = {
@@ -123,18 +124,18 @@ export async function giftWrapWelcome(
     tags: [],
   };
 
+  // Sign seal with sender's key
   const signedSeal = await signer.signEvent(sealEvent);
   const sealJson = JSON.stringify(signedSeal);
 
-  // Step 3: Create the gift wrap (encrypt seal with ephemeral keypair)
-  // Generate ephemeral keypair for the outer wrapper
+  // Step 3: Create the gift wrap (encrypt seal with EPHEMERAL keypair per NIP-59)
+  // The gift wrap MUST use a fresh ephemeral key for unlinkability.
+  // This is the core privacy mechanism of NIP-59.
   const ephemeral = generateEphemeralKeypair();
+  const ephemeralSigner = new PrivateKeySigner(ephemeral.privateKeyHex);
 
-  // For the gift wrap, we need to encrypt the seal to the recipient
-  // using NIP-44 with the ephemeral key. Since we can't use the signer's
-  // NIP-44 for this (it uses the wrong key), we indicate this needs
-  // external NIP-44 encryption.
-  const wrappedContent = await signer.nip44Encrypt(recipientPubkey, sealJson);
+  // Encrypt seal to recipient using ephemeral key (NIP-44)
+  const wrappedContent = await ephemeralSigner.nip44Encrypt(recipientPubkey, sealJson);
 
   const giftWrapEvent: UnsignedEvent = {
     kind: 1059, // NIP-59 gift wrap
@@ -144,9 +145,8 @@ export async function giftWrapWelcome(
     tags: [['p', recipientPubkey]],
   };
 
-  // Gift wrap events are signed with the ephemeral key
-  // For now, we sign with the signer (the caller should handle ephemeral signing)
-  return signer.signEvent(giftWrapEvent);
+  // Sign gift wrap with ephemeral key (NOT sender's key — privacy!)
+  return ephemeralSigner.signEvent(giftWrapEvent);
 }
 
 /**
@@ -323,10 +323,14 @@ export function isInitialGroupCreation(commitEpoch: number): boolean {
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 /**
- * Randomize a timestamp by ±48 hours for privacy (NIP-59).
+ * Randomize a timestamp for privacy (NIP-59).
+ * 
+ * IMPORTANT: Most relays reject events with timestamps in the future (typically
+ * allowing only 10-15 minutes of clock skew). To prevent rejection while still
+ * providing privacy, we randomize ONLY into the past (0 to 48 hours ago).
  */
 function randomizeTimestamp(timestamp: number): number {
   const maxOffset = 48 * 60 * 60; // 48 hours in seconds
-  const randomOffset = Math.floor(Math.random() * maxOffset * 2) - maxOffset;
-  return timestamp + randomOffset;
+  const randomOffset = Math.floor(Math.random() * maxOffset); // 0 to 48 hours
+  return timestamp - randomOffset; // Only subtract (go into the past)
 }
