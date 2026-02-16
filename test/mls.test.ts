@@ -6,6 +6,7 @@ const isBun = typeof globalThis.Bun !== 'undefined';
 const describeHpke = isBun ? describe.skip : describe;
 import {
   DEFAULT_CIPHERSUITE,
+  DEFAULT_CIPHERSUITE_ID,
   getCiphersuiteImpl,
   getSupportedCiphersuites,
   ciphersuiteNameToId,
@@ -28,9 +29,10 @@ import {
   encodeKeyPackage,
   decodeKeyPackage,
 } from '../src/mls.js';
-import { encodeMlsMessage } from 'ts-mls';
+import { encode, mlsMessageEncoder, protocolVersions, wireformats } from 'ts-mls';
 import { parseKeyPackageEvent } from '../src/mip00.js';
 import type { UnsignedEvent } from '../src/types.js';
+import type { MlsMessage } from 'ts-mls';
 
 // ─── Test Helpers ───────────────────────────────────────────────────────────
 
@@ -104,7 +106,7 @@ describe('Ciphersuite management', () => {
   it('getCiphersuiteImpl should return a CiphersuiteImpl', async () => {
     const impl = await getCiphersuiteImpl();
     expect(impl).toBeDefined();
-    expect(impl.name).toBe(DEFAULT_CIPHERSUITE);
+    expect(impl.id).toBe(DEFAULT_CIPHERSUITE_ID);
   });
 
   it('getCiphersuiteImpl should cache results', async () => {
@@ -173,8 +175,8 @@ describe('KeyPackage round-trip', () => {
 
     // Decode
     const decoded = decodeKeyPackage(encoded);
-    expect(decoded.version).toBe('mls10');
-    expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
+    expect(decoded.version).toBe(protocolVersions.mls10); // numeric 1
+    expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE_ID); // numeric 1
 
     // Verify identity
     const identity = bytesToHex(decoded.leafNode.credential.identity);
@@ -194,8 +196,8 @@ describe('KeyPackage parsing', () => {
     expect(keyPackageBytes[1]).toBe(0x01);
 
     const parsed = parseKeyPackageBytes(keyPackageBytes);
-    expect(parsed.version).toBe('mls10');
-    expect(parsed.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
+    expect(parsed.version).toBe(protocolVersions.mls10); // numeric 1
+    expect(parsed.cipherSuite).toBe(DEFAULT_CIPHERSUITE_ID); // numeric 1
     expect(bytesToHex(parsed.leafNode.credential.identity)).toBe(TEST_PUBKEY_ALICE);
   });
 
@@ -203,11 +205,11 @@ describe('KeyPackage parsing', () => {
     const { keyPackage } = await generateMlsKeyPackage(TEST_PUBKEY_ALICE);
 
     // Create MLSMessage-wrapped version
-    const wrapped = encodeMlsMessage({
-      version: 'mls10',
-      wireformat: 'mls_key_package',
+    const wrapped = encode(mlsMessageEncoder, {
+      version: protocolVersions.mls10,
+      wireformat: wireformats.mls_key_package,
       keyPackage,
-    });
+    } as MlsMessage);
 
     // Wrapped starts with 0x0001 0x0005
     expect(wrapped[0]).toBe(0x00);
@@ -216,8 +218,8 @@ describe('KeyPackage parsing', () => {
     expect(wrapped[3]).toBe(0x05);
 
     const parsed = parseKeyPackageBytes(wrapped);
-    expect(parsed.version).toBe('mls10');
-    expect(parsed.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
+    expect(parsed.version).toBe(protocolVersions.mls10);
+    expect(parsed.cipherSuite).toBe(DEFAULT_CIPHERSUITE_ID);
     expect(bytesToHex(parsed.leafNode.credential.identity)).toBe(TEST_PUBKEY_ALICE);
   });
 
@@ -383,7 +385,7 @@ describeHpke('State serialization', () => {
 
     const encoded = encodeWelcome(addResult.welcome);
     const decoded = decodeWelcome(encoded);
-    expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
+    expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE_ID); // numeric
     expect(decoded.secrets.length).toBe(addResult.welcome.secrets.length);
   });
 
@@ -401,7 +403,7 @@ describeHpke('State serialization', () => {
 
     // decodeWelcome should fall back to raw decoding
     const decoded = decodeWelcome(rawEncoded);
-    expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
+    expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE_ID);
   });
 
   it('encodeWelcomeRaw/decodeWelcomeRaw should round-trip', async () => {
@@ -413,7 +415,7 @@ describeHpke('State serialization', () => {
 
     const rawEncoded = encodeWelcomeRaw(addResult.welcome);
     const decoded = decodeWelcomeRaw(rawEncoded);
-    expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
+    expect(decoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE_ID);
     expect(decoded.secrets.length).toBe(addResult.welcome.secrets.length);
   });
 
@@ -433,11 +435,11 @@ describeHpke('State serialization', () => {
 
     // Encode a KeyPackage as MLSMessage (wireformat = mls_key_package, not mls_welcome)
     const aliceKP = await generateMlsKeyPackage(TEST_PUBKEY_ALICE);
-    const kpWrapped = encodeMlsMessage({
-      version: 'mls10',
-      wireformat: 'mls_key_package',
+    const kpWrapped = encode(mlsMessageEncoder, {
+      version: protocolVersions.mls10,
+      wireformat: wireformats.mls_key_package,
       keyPackage: aliceKP.keyPackage,
-    });
+    } as MlsMessage);
 
     expect(() => decodeWelcome(kpWrapped)).toThrow(
       'Expected MLSMessage with wireformat mls_welcome'
@@ -498,8 +500,8 @@ describe('parseKeyPackageFromEvent', () => {
     expect(result.parsed.ciphersuite).toBe('0x0001');
 
     expect(result.mlsKeyPackage).toBeDefined();
-    expect(result.mlsKeyPackage.version).toBe('mls10');
-    expect(result.mlsKeyPackage.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
+    expect(result.mlsKeyPackage.version).toBe(protocolVersions.mls10); // numeric 1
+    expect(result.mlsKeyPackage.cipherSuite).toBe(DEFAULT_CIPHERSUITE_ID); // numeric 1
     expect(bytesToHex(result.mlsKeyPackage.leafNode.credential.identity)).toBe(
       TEST_PUBKEY_ALICE
     );
@@ -528,7 +530,7 @@ describe('parseKeyPackageFromEvent', () => {
     const result = parseKeyPackageFromEvent(event);
 
     expect(result.parsed.encoding).toBe('hex');
-    expect(result.mlsKeyPackage.version).toBe('mls10');
+    expect(result.mlsKeyPackage.version).toBe(protocolVersions.mls10);
     expect(bytesToHex(result.mlsKeyPackage.leafNode.credential.identity)).toBe(
       TEST_PUBKEY_BOB
     );
@@ -637,7 +639,7 @@ describeHpke('Full MLS integration flow', () => {
     expect(welcomeBytes[2]).toBe(0x00);
     expect(welcomeBytes[3]).toBe(0x03); // wireformat = mls_welcome
     const welcomeDecoded = decodeWelcome(welcomeBytes);
-    expect(welcomeDecoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
+    expect(welcomeDecoded.cipherSuite).toBe(DEFAULT_CIPHERSUITE_ID); // numeric
   });
 });
 
@@ -834,11 +836,11 @@ describe('parseKeyPackageRaw', () => {
 
   it('should handle MLSMessage-wrapped KeyPackage', async () => {
     const { keyPackage } = await generateMlsKeyPackage(TEST_PUBKEY_BOB);
-    const wrapped = encodeMlsMessage({
-      version: 'mls10',
-      wireformat: 'mls_key_package',
+    const wrapped = encode(mlsMessageEncoder, {
+      version: protocolVersions.mls10,
+      wireformat: wireformats.mls_key_package,
       keyPackage,
-    });
+    } as MlsMessage);
 
     // Wrapped starts with 0x0001 0x0005
     expect(wrapped[0]).toBe(0x00);

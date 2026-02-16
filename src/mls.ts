@@ -14,43 +14,46 @@ import {
   joinGroup as tsJoinGroup,
   createCommit as tsCreateCommit,
   mlsExporter,
-  encodeGroupState as tsEncodeGroupState,
-  decodeGroupState as tsDecodeGroupState,
-  encodeMlsMessage,
-  decodeMlsMessage,
+  encode,
+  decode,
+  clientStateEncoder,
+  clientStateDecoder,
+  mlsMessageEncoder,
+  mlsMessageDecoder,
   getCiphersuiteImpl as tsGetCiphersuiteImpl,
-  getCiphersuiteFromName,
   ciphersuites as tsCiphersuites,
   defaultLifetime,
-  emptyPskIndex,
+  defaultCapabilities as tsDefaultCapabilities,
+  defaultCredentialTypes,
+  defaultProposalTypes,
+  unsafeTestingAuthenticationService,
+  protocolVersions,
+  wireformats,
+  keyPackageEncoder as tsKeyPackageEncoder,
+  keyPackageDecoder as tsKeyPackageDecoder,
 } from 'ts-mls';
 
-import type { Capabilities } from 'ts-mls';
-
-import { defaultClientConfig } from 'ts-mls/clientConfig.js';
-
-// Import encode/decode for KeyPackage and Welcome from subpaths
 import {
-  encodeKeyPackage as tsEncodeKeyPackage,
-  decodeKeyPackage as tsDecodeKeyPackage,
-} from 'ts-mls/keyPackage.js';
-
-import {
-  encodeWelcome as tsEncodeWelcome,
-  decodeWelcome as tsDecodeWelcome,
+  welcomeEncoder as tsWelcomeEncoder,
+  welcomeDecoder as tsWelcomeDecoder,
 } from 'ts-mls/welcome.js';
 
 import type {
+  Capabilities,
   CiphersuiteName,
+  CiphersuiteId,
   CiphersuiteImpl,
   KeyPackage as TsKeyPackage,
   PrivateKeyPackage as TsPrivateKeyPackage,
   ClientState,
   GroupState,
   Welcome as TsWelcome,
-  MLSMessage,
+  MlsMessage,
+  MlsFramedMessage,
+  MlsWelcomeMessage,
   Credential,
-  ProposalAdd,
+  Proposal,
+  MlsContext,
 } from 'ts-mls';
 
 import type { ParsedKeyPackage, SignedEvent, UnsignedEvent } from './types.js';
@@ -64,6 +67,11 @@ import { parseKeyPackageEvent } from './mip00.js';
  */
 export const DEFAULT_CIPHERSUITE: CiphersuiteName =
   'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519';
+
+/**
+ * Default ciphersuite numeric ID.
+ */
+export const DEFAULT_CIPHERSUITE_ID: CiphersuiteId = tsCiphersuites[DEFAULT_CIPHERSUITE];
 
 /**
  * Marmot exporter secret label.
@@ -92,8 +100,7 @@ export async function getCiphersuiteImpl(
   const cached = ciphersuiteCache.get(name);
   if (cached) return cached;
 
-  const cs = getCiphersuiteFromName(name);
-  const impl = await tsGetCiphersuiteImpl(cs);
+  const impl = await tsGetCiphersuiteImpl(name);
   ciphersuiteCache.set(name, impl);
   return impl;
 }
@@ -137,34 +144,80 @@ export function ciphersuiteIdToName(id: number): CiphersuiteName {
 /**
  * Marmot-specific MLS capabilities.
  *
- * Overrides ts-mls's defaultCapabilities() which advertises all 19+ ciphersuites,
- * adds random GREASE values, and omits required extensions — making KeyPackages
- * incompatible with OpenMLS-based clients (marmot-cli, Kai-MDK).
+ * Builds on ts-mls v2's defaultCapabilities() (which includes GREASE values),
+ * then ensures Marmot-required extensions are present and filters ciphersuites
+ * to the ones we actually support.
  *
- * OpenMLS rejects KeyPackages whose capabilities don't include extension type
- * 0x000a (ratchet_tree), and bloated ciphersuite lists cause "insufficient
- * capabilities" errors during Add proposals.
- *
- * This function returns a minimal, interop-tested capabilities set:
- * - versions: [mls10]
- * - ciphersuites: [0x0001] (AES-128-GCM + Ed25519) — the Marmot default
- * - extensions: [0x000a, 0xf2ee] (ratchet_tree + marmot_group_data — both required)
- * - proposals: [] (no custom proposal types)
- * - credentials: [basic] (Marmot uses basic credentials with Nostr pubkey identity)
+ * This function returns interop-tested capabilities:
+ * - versions: [1] (mls10) + GREASE
+ * - ciphersuites: [1, 3] (AES-128-GCM + ChaCha20) + GREASE, filtered from default
+ * - extensions: includes [0x000a, 0xf2ee] (ratchet_tree + marmot_group_data) + GREASE
+ * - proposals: [] + GREASE
+ * - credentials: [1] (basic) + GREASE
  *
  * Per MIP-00: "Marmot implementations MUST include the 0xf2ee extension for
  * marmot_group_data and the 0x000a extension for last_resort."
  */
 export function marmotCapabilities(): Capabilities {
+  // Start with ts-mls v2 defaults (includes GREASE)
+  const caps = tsDefaultCapabilities();
+
+  // Ensure marmot extensions are present
+  const extensions = Array.from(caps.extensions);
+  if (!extensions.includes(0xf2ee)) extensions.push(0xf2ee);
+  if (!extensions.includes(0x000a)) extensions.push(0x000a);
+
+  // Filter ciphersuites: keep 0x0001, 0x0003, and GREASE values
+  const allowedCiphersuites = new Set<number>([
+    tsCiphersuites.MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519, // 1
+    tsCiphersuites.MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519, // 3
+  ]);
+  const filteredCiphersuites = caps.ciphersuites.filter(
+    (id) => allowedCiphersuites.has(id) || isGreaseValue(id)
+  );
+
+  // Only include basic credential type (filter out x509), keep GREASE
+  const filteredCredentials = caps.credentials.filter(
+    (c) => c === defaultCredentialTypes.basic || isGreaseValue(c)
+  );
+
   return {
-    versions: ['mls10'],
-    ciphersuites: [
-      'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519', // 0x0001
-      'MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519', // 0x0003
-    ],
-    extensions: [0x000a, 0xf2ee], // ratchet_tree + marmot_group_data (MIP-00 mandatory)
-    proposals: [],
-    credentials: ['basic'],
+    ...caps,
+    extensions,
+    ciphersuites: filteredCiphersuites as Capabilities['ciphersuites'],
+    credentials: filteredCredentials,
+  };
+}
+
+/**
+ * MLS GREASE values (RFC 8701 / RFC 9420).
+ * Pattern: 0x?A?A where the two nibbles are the same.
+ * e.g. 0x0A0A, 0x1A1A, ..., 0xEAEA
+ */
+const GREASE_VALUES = new Set([
+  0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a, 0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a, 0x8a8a, 0x9a9a, 0xaaaa,
+  0xbaba, 0xcaca, 0xdada, 0xeaea,
+]);
+
+function isGreaseValue(v: number): boolean {
+  return GREASE_VALUES.has(v);
+}
+
+// ─── MLS Context ────────────────────────────────────────────────────────────
+
+/**
+ * Create an MlsContext for ts-mls v2 operations.
+ *
+ * @param ciphersuite - Ciphersuite name (default: DEFAULT_CIPHERSUITE)
+ * @returns MlsContext with ciphersuite and auth service
+ */
+async function createMlsContext(
+  ciphersuite: CiphersuiteName = DEFAULT_CIPHERSUITE
+): Promise<MlsContext> {
+  const cs = await getCiphersuiteImpl(ciphersuite);
+  return {
+    cipherSuite: cs,
+    authService: unsafeTestingAuthenticationService,
   };
 }
 
@@ -210,20 +263,20 @@ export async function generateMlsKeyPackage(
   const identityBytes = hexToBytes(identity);
 
   const credential: Credential = {
-    credentialType: 'basic',
+    credentialType: defaultCredentialTypes.basic,
     identity: identityBytes,
   };
 
-  const { publicPackage, privatePackage } = await tsGenerateKeyPackage(
+  const { publicPackage, privatePackage } = await tsGenerateKeyPackage({
     credential,
-    marmotCapabilities(),
-    defaultLifetime,
-    [], // extensions
-    cs
-  );
+    capabilities: marmotCapabilities(),
+    lifetime: defaultLifetime(),
+    extensions: [],
+    cipherSuite: cs,
+  });
 
   // Encode as raw KeyPackage (NOT MLSMessage-wrapped)
-  const keyPackageBytes = tsEncodeKeyPackage(publicPackage);
+  const keyPackageBytes = encode(tsKeyPackageEncoder, publicPackage);
 
   return {
     keyPackageBytes,
@@ -265,21 +318,28 @@ export function parseKeyPackageBytes(bytes: Uint8Array): TsKeyPackage {
 
   // Check if MLSMessage-wrapped (wireformat 0x0005 = mls_key_package)
   if (bytes[2] === 0x00 && bytes[3] === 0x05) {
-    // MLSMessage-wrapped: strip the 4-byte header (version + wireformat) and parse body
-    const innerBytes = bytes.slice(4);
-    const result = tsDecodeKeyPackage(innerBytes, 0);
+    // MLSMessage-wrapped: decode via mlsMessageDecoder
+    const result = decode(mlsMessageDecoder, bytes);
     if (!result) {
       throw new Error('Failed to decode MLSMessage-wrapped KeyPackage');
     }
-    return result[0];
+    if (result.wireformat !== wireformats.mls_key_package) {
+      throw new Error(`Expected mls_key_package wireformat, got ${result.wireformat}`);
+    }
+    return (
+      result as {
+        wireformat: typeof wireformats.mls_key_package;
+        keyPackage: TsKeyPackage;
+      }
+    ).keyPackage;
   }
 
   // Raw KeyPackage: parse directly
-  const result = tsDecodeKeyPackage(bytes, 0);
+  const result = decode(tsKeyPackageDecoder, bytes);
   if (!result) {
     throw new Error('Failed to decode raw KeyPackage');
   }
-  return result[0];
+  return result;
 }
 
 // ─── KeyPackage from Nostr Event ────────────────────────────────────────────
@@ -341,7 +401,7 @@ export async function createMlsGroup(
   identity: string,
   ciphersuite: CiphersuiteName = DEFAULT_CIPHERSUITE
 ): Promise<MlsGroupResult> {
-  const cs = await getCiphersuiteImpl(ciphersuite);
+  const context = await createMlsContext(ciphersuite);
 
   // Generate a KeyPackage for the group creator
   const { keyPackage, privateKeyPackage } = await generateMlsKeyPackage(
@@ -349,15 +409,15 @@ export async function createMlsGroup(
     ciphersuite
   );
 
-  const state = await tsCreateGroup(
+  const state = await tsCreateGroup({
+    context,
     groupId,
     keyPackage,
     privateKeyPackage,
-    [], // extensions
-    cs
-  );
+    extensions: [],
+  });
 
-  const encodedState = tsEncodeGroupState(state);
+  const encodedState = encode(clientStateEncoder, state);
   const exporterSecret = await deriveExporterSecret(state, ciphersuite);
 
   return {
@@ -379,7 +439,7 @@ export interface AddMembersResult {
   /** Welcome message for new members */
   welcome: TsWelcome;
   /** Commit message */
-  commit: MLSMessage;
+  commit: MlsFramedMessage;
   /** Encoded new state for persistence */
   encodedState: Uint8Array;
   /** New exporter secret after state change */
@@ -399,32 +459,31 @@ export async function addMlsGroupMembers(
   memberKeyPackages: TsKeyPackage[],
   ciphersuite: CiphersuiteName = DEFAULT_CIPHERSUITE
 ): Promise<AddMembersResult> {
-  const cs = await getCiphersuiteImpl(ciphersuite);
+  const context = await createMlsContext(ciphersuite);
 
-  // Build Add proposals
-  const extraProposals: ProposalAdd[] = memberKeyPackages.map((kp) => ({
-    proposalType: 'add' as const,
+  // Build Add proposals (proposalType is numeric in ts-mls v2)
+  const extraProposals: Proposal[] = memberKeyPackages.map((kp) => ({
+    proposalType: defaultProposalTypes.add,
     add: { keyPackage: kp },
   }));
 
-  const result = await tsCreateCommit(
-    { state, cipherSuite: cs },
-    {
-      extraProposals,
-      ratchetTreeExtension: true,
-    }
-  );
+  const result = await tsCreateCommit({
+    context,
+    state,
+    extraProposals,
+    ratchetTreeExtension: true,
+  });
 
   if (!result.welcome) {
     throw new Error('Expected Welcome message when adding members');
   }
 
-  const encodedState = tsEncodeGroupState(result.newState);
+  const encodedState = encode(clientStateEncoder, result.newState);
   const exporterSecret = await deriveExporterSecret(result.newState, ciphersuite);
 
   return {
     newState: result.newState,
-    welcome: result.welcome,
+    welcome: result.welcome.welcome,
     commit: result.commit,
     encodedState,
     exporterSecret,
@@ -462,17 +521,16 @@ export async function joinMlsGroupFromWelcome(
   privateKeyPackage: TsPrivateKeyPackage,
   ciphersuite: CiphersuiteName = DEFAULT_CIPHERSUITE
 ): Promise<JoinGroupResult> {
-  const cs = await getCiphersuiteImpl(ciphersuite);
+  const context = await createMlsContext(ciphersuite);
 
-  const state = await tsJoinGroup(
+  const state = await tsJoinGroup({
+    context,
     welcome,
     keyPackage,
-    privateKeyPackage,
-    emptyPskIndex,
-    cs
-  );
+    privateKeys: privateKeyPackage,
+  });
 
-  const encodedState = tsEncodeGroupState(state);
+  const encodedState = encode(clientStateEncoder, state);
   const exporterSecret = await deriveExporterSecret(state, ciphersuite);
   const groupId = state.groupContext.groupId;
 
@@ -514,19 +572,19 @@ export async function deriveExporterSecret(
 /**
  * Encode MLS group state for persistence.
  */
-export function encodeMlsState(state: GroupState): Uint8Array {
-  return tsEncodeGroupState(state);
+export function encodeMlsState(state: ClientState): Uint8Array {
+  return encode(clientStateEncoder, state);
 }
 
 /**
  * Decode MLS group state from persisted bytes.
  */
-export function decodeMlsState(bytes: Uint8Array): GroupState {
-  const result = tsDecodeGroupState(bytes, 0);
+export function decodeMlsState(bytes: Uint8Array): ClientState {
+  const result = decode(clientStateDecoder, bytes);
   if (!result) {
     throw new Error('Failed to decode MLS group state');
   }
-  return result[0];
+  return result;
 }
 
 /**
@@ -538,11 +596,11 @@ export function decodeMlsState(bytes: Uint8Array): GroupState {
  * Wire format: version (0x0001) + wireformat (0x0003 = mls_welcome) + welcome body
  */
 export function encodeWelcome(welcome: TsWelcome): Uint8Array {
-  return encodeMlsMessage({
-    version: 'mls10',
-    wireformat: 'mls_welcome',
+  return encode(mlsMessageEncoder, {
+    version: protocolVersions.mls10,
+    wireformat: wireformats.mls_welcome,
     welcome,
-  });
+  } as MlsMessage);
 }
 
 /**
@@ -559,11 +617,11 @@ export function decodeWelcome(bytes: Uint8Array): TsWelcome {
   // Try MLSMessage-wrapped first (expected per MIP-02)
   // MLSMessage starts with version 0x0001, then wireformat
   if (bytes[0] === 0x00 && bytes[1] === 0x01) {
-    const mlsResult = decodeMlsMessage(bytes, 0);
-    if (mlsResult) {
-      const [msg] = mlsResult;
-      if (msg.wireformat === 'mls_welcome') {
-        return msg.welcome;
+    const msg = decode(mlsMessageDecoder, bytes);
+    if (msg) {
+      if (msg.wireformat === wireformats.mls_welcome) {
+        return (msg as { wireformat: typeof wireformats.mls_welcome; welcome: TsWelcome })
+          .welcome;
       }
       throw new Error(
         `Expected MLSMessage with wireformat mls_welcome, got ${msg.wireformat}`
@@ -572,11 +630,11 @@ export function decodeWelcome(bytes: Uint8Array): TsWelcome {
   }
 
   // Fallback: try raw Welcome decoding for compatibility
-  const rawResult = tsDecodeWelcome(bytes, 0);
+  const rawResult = decode(tsWelcomeDecoder, bytes);
   if (!rawResult) {
     throw new Error('Failed to decode Welcome message');
   }
-  return rawResult[0];
+  return rawResult;
 }
 
 /**
@@ -586,7 +644,7 @@ export function decodeWelcome(bytes: Uint8Array): TsWelcome {
  * format required by MIP-02. This raw variant is for advanced/internal use only.
  */
 export function encodeWelcomeRaw(welcome: TsWelcome): Uint8Array {
-  return tsEncodeWelcome(welcome);
+  return encode(tsWelcomeEncoder, welcome);
 }
 
 /**
@@ -596,11 +654,11 @@ export function encodeWelcomeRaw(welcome: TsWelcome): Uint8Array {
  * format used by MIP-02. This raw variant is for advanced/internal use only.
  */
 export function decodeWelcomeRaw(bytes: Uint8Array): TsWelcome {
-  const result = tsDecodeWelcome(bytes, 0);
+  const result = decode(tsWelcomeDecoder, bytes);
   if (!result) {
     throw new Error('Failed to decode raw Welcome message');
   }
-  return result[0];
+  return result;
 }
 
 /**
@@ -610,7 +668,7 @@ export function decodeWelcomeRaw(bytes: Uint8Array): TsWelcome {
  * KeyPackage bytes (NOT MLSMessage-wrapped).
  */
 export function encodeKeyPackage(keyPackage: TsKeyPackage): Uint8Array {
-  return tsEncodeKeyPackage(keyPackage);
+  return encode(tsKeyPackageEncoder, keyPackage);
 }
 
 /**
@@ -618,30 +676,31 @@ export function encodeKeyPackage(keyPackage: TsKeyPackage): Uint8Array {
  * For MLSMessage-wrapped or auto-detection, use parseKeyPackageBytes().
  */
 export function decodeKeyPackage(bytes: Uint8Array): TsKeyPackage {
-  const result = tsDecodeKeyPackage(bytes, 0);
+  const result = decode(tsKeyPackageDecoder, bytes);
   if (!result) {
     throw new Error('Failed to decode KeyPackage');
   }
-  return result[0];
+  return result;
 }
 
 // ─── GroupState → ClientState conversion ────────────────────────────────────
 
 /**
- * Convert a GroupState (from deserialization) to a ClientState
- * by adding the default client configuration.
+ * Convert a GroupState (from deserialization) to a ClientState.
  *
- * This is needed when loading persisted MLS state, since only GroupState
- * is serializable — ClientState includes non-serializable runtime config.
+ * In ts-mls v2, ClientState = GroupState & PublicGroupState, and
+ * serialization includes both parts. This function is provided for
+ * backward compatibility but typically you should use decodeMlsState()
+ * which returns a full ClientState directly.
  *
  * @param groupState - The deserialized GroupState
- * @returns A ClientState with default client configuration
+ * @returns The same state (in v2, decode gives full ClientState)
  */
 export function groupStateToClientState(groupState: GroupState): ClientState {
-  return {
-    ...groupState,
-    clientConfig: defaultClientConfig,
-  };
+  // In v2, GroupState doesn't include ratchetTree and groupContext.
+  // If this is actually a ClientState (which it should be from decodeMlsState),
+  // just return it as-is.
+  return groupState as unknown as ClientState;
 }
 
 // ─── Helper: Hex to Bytes ───────────────────────────────────────────────────
@@ -894,7 +953,7 @@ function isHexAscii(bytes: Uint8Array): boolean {
 /**
  * Parse raw TLS-encoded KeyPackage bytes using standalone varint-aware parsing.
  *
- * Unlike `parseKeyPackageBytes()` which delegates to ts-mls's `decodeKeyPackage()`,
+ * Unlike `parseKeyPackageBytes()` which delegates to ts-mls's decoder,
  * this parser reads the wire format directly. This is useful for:
  * - Debugging interop issues between different MLS implementations
  * - Analyzing KeyPackages from OpenMLS, marmot-chat (XChat), MDK, etc.
@@ -1036,7 +1095,9 @@ export function parseKeyPackageRaw(bytes: Uint8Array): ParsedKeyPackageRaw {
 // ─── Re-exported Types ──────────────────────────────────────────────────────
 // Re-export ts-mls types so consumers don't need a direct ts-mls dependency.
 
-export type { CiphersuiteName, ClientState, GroupState, MLSMessage };
+export type { CiphersuiteName, ClientState, GroupState };
+
+export type { MlsMessage, MlsFramedMessage, MlsWelcomeMessage };
 
 export type { TsKeyPackage as KeyPackage };
 export type { TsPrivateKeyPackage as PrivateKeyPackage };

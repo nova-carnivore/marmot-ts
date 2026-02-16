@@ -168,6 +168,7 @@ export {
 // ─── MLS Runtime Operations ────────────────────────────────────────────────
 export {
   DEFAULT_CIPHERSUITE,
+  DEFAULT_CIPHERSUITE_ID,
   marmotCapabilities,
   getCiphersuiteImpl,
   getSupportedCiphersuites,
@@ -208,5 +209,7 @@ export type {
   KeyPackage,
   PrivateKeyPackage,
   Welcome,
-  MLSMessage,
+  MlsMessage,
+  MlsFramedMessage,
+  MlsWelcomeMessage,
 } from './mls.js';
