@@ -324,7 +324,7 @@ export function isInitialGroupCreation(commitEpoch: number): boolean {
 
 /**
  * Randomize a timestamp for privacy (NIP-59).
- * 
+ *
  * IMPORTANT: Most relays reject events with timestamps in the future (typically
  * allowing only 10-15 minutes of clock skew). To prevent rejection while still
  * providing privacy, we randomize ONLY into the past (0 to 48 hours ago).

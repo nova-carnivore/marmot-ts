@@ -25,11 +25,7 @@ import {
 
 // ─── Config ─────────────────────────────────────────────────────────────────
 
-const RELAYS = [
-  'wss://relay.damus.io',
-  'wss://relay.primal.net',
-  'wss://nos.lol',
-];
+const RELAYS = ['wss://relay.damus.io', 'wss://relay.primal.net', 'wss://nos.lol'];
 
 // Known Marmot pubkeys
 const KAI_PUBKEY = '7bd07e03041573478d3f0e546f161b04c80fd85f9b2d29248d4f2b65147a4c3e';
@@ -92,11 +88,7 @@ function fetchFromRelay(
 
     ws.on('open', () => {
       ws.send(
-        JSON.stringify([
-          'REQ',
-          'kp',
-          { kinds: [443], authors: [pubkey], limit: 1 },
-        ])
+        JSON.stringify(['REQ', 'kp', { kinds: [443], authors: [pubkey], limit: 1 }])
       );
     });
 
@@ -269,20 +261,14 @@ async function main() {
   let novaKp: Awaited<ReturnType<typeof generateMlsKeyPackage>>;
   try {
     novaKp = await generateMlsKeyPackage(NOVA_PUBKEY);
-    pass(
-      'generateMlsKeyPackage',
-      `${novaKp.keyPackageBytes.length} bytes`
-    );
+    pass('generateMlsKeyPackage', `${novaKp.keyPackageBytes.length} bytes`);
 
     // Verify it round-trips through our parser
     const novaRaw = parseKeyPackageRaw(novaKp.keyPackageBytes);
     if (novaRaw.identityHex === NOVA_PUBKEY) {
       pass('Nova KeyPackage round-trip identity matches');
     } else {
-      fail(
-        'Nova KeyPackage round-trip',
-        `identity mismatch: ${novaRaw.identityHex}`
-      );
+      fail('Nova KeyPackage round-trip', `identity mismatch: ${novaRaw.identityHex}`);
     }
   } catch (e: any) {
     fail('generateMlsKeyPackage', e.message);
@@ -315,13 +301,8 @@ async function main() {
 
   if (tsmlsParsed) {
     try {
-      const addResult = await addMlsGroupMembers(groupResult!.state, [
-        tsmlsParsed,
-      ]);
-      pass(
-        'addMlsGroupMembers',
-        `epoch=${addResult.newState.groupContext.epoch}`
-      );
+      const addResult = await addMlsGroupMembers(groupResult!.state, [tsmlsParsed]);
+      pass('addMlsGroupMembers', `epoch=${addResult.newState.groupContext.epoch}`);
 
       // ─── Step 6a: Verify Welcome ──────────────────────────────────────
       if (addResult.welcome) {
@@ -338,10 +319,7 @@ async function main() {
             welcomeDecoded.cipherSuite === addResult.welcome.cipherSuite &&
             welcomeDecoded.secrets.length === addResult.welcome.secrets.length
           ) {
-            pass(
-              'Welcome encode/decode round-trip',
-              `${welcomeBytes.length} bytes`
-            );
+            pass('Welcome encode/decode round-trip', `${welcomeBytes.length} bytes`);
           } else {
             fail('Welcome round-trip', 'mismatch after decode');
           }
@@ -417,19 +395,14 @@ async function main() {
       const bobPubkey =
         'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
       const bobKp = await generateMlsKeyPackage(bobPubkey);
-      const addResult = await addMlsGroupMembers(groupResult!.state, [
-        bobKp.keyPackage,
-      ]);
+      const addResult = await addMlsGroupMembers(groupResult!.state, [bobKp.keyPackage]);
       pass(
         'addMlsGroupMembers (local)',
         `epoch=${addResult.newState.groupContext.epoch}`
       );
 
       if (addResult.welcome) {
-        pass(
-          'Welcome message generated',
-          `secrets=${addResult.welcome.secrets.length}`
-        );
+        pass('Welcome message generated', `secrets=${addResult.welcome.secrets.length}`);
       }
 
       // State serialization
@@ -468,9 +441,7 @@ function printSummary() {
   }
 
   console.log();
-  console.log(
-    `  ${passed} passed, ${failed} failed, ${results.length} total`
-  );
+  console.log(`  ${passed} passed, ${failed} failed, ${results.length} total`);
   console.log();
 
   if (failed > 0) {

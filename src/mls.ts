@@ -159,7 +159,7 @@ export function marmotCapabilities(): Capabilities {
   return {
     versions: ['mls10'],
     ciphersuites: [
-      'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519',       // 0x0001
+      'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519', // 0x0001
       'MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519', // 0x0003
     ],
     extensions: [0x000a, 0xf2ee], // ratchet_tree + marmot_group_data (MIP-00 mandatory)
@@ -219,7 +219,7 @@ export async function generateMlsKeyPackage(
     marmotCapabilities(),
     defaultLifetime,
     [], // extensions
-    cs,
+    cs
   );
 
   // Encode as raw KeyPackage (NOT MLSMessage-wrapped)
@@ -251,7 +251,9 @@ export function parseKeyPackageBytes(bytes: Uint8Array): TsKeyPackage {
 
   // Check for OpenMLS format (starts with 0xd34d) - not supported
   if (bytes[0] === 0xd3 && bytes[1] === 0x4d) {
-    throw new Error('OpenMLS format (0xd34d) is not supported; use standard TLS encoding');
+    throw new Error(
+      'OpenMLS format (0xd34d) is not supported; use standard TLS encoding'
+    );
   }
 
   // Check version: must be 0x0001 (mls10)
@@ -352,7 +354,7 @@ export async function createMlsGroup(
     keyPackage,
     privateKeyPackage,
     [], // extensions
-    cs,
+    cs
   );
 
   const encodedState = tsEncodeGroupState(state);
@@ -410,7 +412,7 @@ export async function addMlsGroupMembers(
     {
       extraProposals,
       ratchetTreeExtension: true,
-    },
+    }
   );
 
   if (!result.welcome) {
@@ -467,7 +469,7 @@ export async function joinMlsGroupFromWelcome(
     keyPackage,
     privateKeyPackage,
     emptyPskIndex,
-    cs,
+    cs
   );
 
   const encodedState = tsEncodeGroupState(state);
@@ -503,7 +505,7 @@ export async function deriveExporterSecret(
     EXPORTER_LABEL,
     new Uint8Array(0),
     EXPORTER_LENGTH,
-    cs,
+    cs
   );
 }
 
@@ -678,7 +680,9 @@ export function readMlsVarint(
   offset: number
 ): [value: number, newOffset: number] {
   if (offset >= data.length) {
-    throw new Error(`readMlsVarint: offset ${offset} out of bounds (length ${data.length})`);
+    throw new Error(
+      `readMlsVarint: offset ${offset} out of bounds (length ${data.length})`
+    );
   }
 
   const first = data[offset]!;
@@ -792,7 +796,9 @@ export interface ParsedKeyPackageRaw {
  */
 function readUint16BE(data: Uint8Array, offset: number): number {
   if (offset + 1 >= data.length) {
-    throw new Error(`readUint16BE: offset ${offset} out of bounds (length ${data.length})`);
+    throw new Error(
+      `readUint16BE: offset ${offset} out of bounds (length ${data.length})`
+    );
   }
   return (data[offset]! << 8) | data[offset + 1]!;
 }
@@ -802,7 +808,9 @@ function readUint16BE(data: Uint8Array, offset: number): number {
  */
 function readUint64BE(data: Uint8Array, offset: number): bigint {
   if (offset + 7 >= data.length) {
-    throw new Error(`readUint64BE: offset ${offset} out of bounds (length ${data.length})`);
+    throw new Error(
+      `readUint64BE: offset ${offset} out of bounds (length ${data.length})`
+    );
   }
   let value = 0n;
   for (let i = 0; i < 8; i++) {
@@ -830,7 +838,10 @@ function readVarintBytes(
 /**
  * Parse a varint-prefixed list of uint16 values.
  */
-function readUint16List(data: Uint8Array, offset: number): [values: number[], newOffset: number] {
+function readUint16List(
+  data: Uint8Array,
+  offset: number
+): [values: number[], newOffset: number] {
   const [vecBytes, newOff] = readVarintBytes(data, offset);
   const values: number[] = [];
   for (let i = 0; i + 1 < vecBytes.length; i += 2) {
@@ -872,7 +883,7 @@ function isHexAscii(bytes: Uint8Array): boolean {
     if (
       !(b >= 0x30 && b <= 0x39) && // 0-9
       !(b >= 0x61 && b <= 0x66) && // a-f
-      !(b >= 0x41 && b <= 0x46)    // A-F
+      !(b >= 0x41 && b <= 0x46) // A-F
     ) {
       return false;
     }
@@ -917,25 +928,25 @@ export function parseKeyPackageRaw(bytes: Uint8Array): ParsedKeyPackageRaw {
   offset += 2;
 
   // init_key: varint(len) + bytes
-  let initKey: Uint8Array;
-  [initKey, offset] = readVarintBytes(data, offset);
+  const [initKey, offsetAfterInit] = readVarintBytes(data, offset);
+  offset = offsetAfterInit;
 
   // LeafNode starts here
   // encryption_key: varint(len) + bytes
-  let encryptionKey: Uint8Array;
-  [encryptionKey, offset] = readVarintBytes(data, offset);
+  const [encryptionKey, offsetAfterEnc] = readVarintBytes(data, offset);
+  offset = offsetAfterEnc;
 
   // signature_key: varint(len) + bytes
-  let signatureKey: Uint8Array;
-  [signatureKey, offset] = readVarintBytes(data, offset);
+  const [signatureKey, offsetAfterSig] = readVarintBytes(data, offset);
+  offset = offsetAfterSig;
 
   // credential_type: uint16
   const credentialType = readUint16BE(data, offset);
   offset += 2;
 
   // identity: varint(len) + bytes
-  let identity: Uint8Array;
-  [identity, offset] = readVarintBytes(data, offset);
+  const [identity, offsetAfterIdent] = readVarintBytes(data, offset);
+  offset = offsetAfterIdent;
 
   // Normalize identity to hex string
   let identityHex: string;
@@ -948,20 +959,20 @@ export function parseKeyPackageRaw(bytes: Uint8Array): ParsedKeyPackageRaw {
   }
 
   // capabilities
-  let versions: number[];
-  [versions, offset] = readUint16List(data, offset);
+  const [versions, offsetAfterVer] = readUint16List(data, offset);
+  offset = offsetAfterVer;
 
-  let ciphersuites: number[];
-  [ciphersuites, offset] = readUint16List(data, offset);
+  const [ciphersuites, offsetAfterCs] = readUint16List(data, offset);
+  offset = offsetAfterCs;
 
-  let extensions: number[];
-  [extensions, offset] = readUint16List(data, offset);
+  const [extensions, offsetAfterExt] = readUint16List(data, offset);
+  offset = offsetAfterExt;
 
-  let proposals: number[];
-  [proposals, offset] = readUint16List(data, offset);
+  const [proposals, offsetAfterProp] = readUint16List(data, offset);
+  offset = offsetAfterProp;
 
-  let credentials: number[];
-  [credentials, offset] = readUint16List(data, offset);
+  const [credentials, offsetAfterCred] = readUint16List(data, offset);
+  offset = offsetAfterCred;
 
   const capabilities: ParsedCapabilities = {
     versions,
@@ -986,20 +997,20 @@ export function parseKeyPackageRaw(bytes: Uint8Array): ParsedKeyPackageRaw {
   }
 
   // leaf_extensions: varint(len) + extensions list
-  let leafExtensions: ParsedExtension[];
-  [leafExtensions, offset] = readExtensionsList(data, offset);
+  const [leafExtensions, offsetAfterLeafExt] = readExtensionsList(data, offset);
+  offset = offsetAfterLeafExt;
 
   // leaf_signature: varint(len) + bytes
-  let leafSignature: Uint8Array;
-  [leafSignature, offset] = readVarintBytes(data, offset);
+  const [leafSignature, offsetAfterLeafSig] = readVarintBytes(data, offset);
+  offset = offsetAfterLeafSig;
 
   // kp_extensions: varint(len) + extensions list
-  let kpExtensions: ParsedExtension[];
-  [kpExtensions, offset] = readExtensionsList(data, offset);
+  const [kpExtensions, offsetAfterKpExt] = readExtensionsList(data, offset);
+  offset = offsetAfterKpExt;
 
   // kp_signature: varint(len) + bytes
-  let kpSignature: Uint8Array;
-  [kpSignature, offset] = readVarintBytes(data, offset);
+  const [kpSignature, offsetAfterKpSig] = readVarintBytes(data, offset);
+  offset = offsetAfterKpSig;
 
   return {
     version,
@@ -1025,12 +1036,7 @@ export function parseKeyPackageRaw(bytes: Uint8Array): ParsedKeyPackageRaw {
 // ─── Re-exported Types ──────────────────────────────────────────────────────
 // Re-export ts-mls types so consumers don't need a direct ts-mls dependency.
 
-export type {
-  CiphersuiteName,
-  ClientState,
-  GroupState,
-  MLSMessage,
-};
+export type { CiphersuiteName, ClientState, GroupState, MLSMessage };
 
 export type { TsKeyPackage as KeyPackage };
 export type { TsPrivateKeyPackage as PrivateKeyPackage };

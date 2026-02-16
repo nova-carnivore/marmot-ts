@@ -13,6 +13,12 @@ export default tseslint.config(
     },
   },
   {
+    files: ['test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  {
     ignores: ['dist/', 'node_modules/', 'vitest.config.ts'],
   }
 );

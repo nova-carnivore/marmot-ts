@@ -1,4 +1,9 @@
 import { describe, it, expect } from 'vitest';
+
+// Bun's WebCrypto doesn't support X25519 HPKE operations needed by ts-mls.
+// Skip tests that require addMlsGroupMembers/joinMlsGroupFromWelcome on Bun.
+const isBun = typeof globalThis.Bun !== 'undefined';
+const describeHpke = isBun ? describe.skip : describe;
 import {
   DEFAULT_CIPHERSUITE,
   getCiphersuiteImpl,
@@ -25,7 +30,7 @@ import {
 } from '../src/mls.js';
 import { encodeMlsMessage } from 'ts-mls';
 import { parseKeyPackageEvent } from '../src/mip00.js';
-import type { SignedEvent, UnsignedEvent } from '../src/types.js';
+import type { UnsignedEvent } from '../src/types.js';
 
 // ─── Test Helpers ───────────────────────────────────────────────────────────
 
@@ -53,9 +58,7 @@ const TEST_PUBKEY_BOB =
 
 describe('Ciphersuite management', () => {
   it('DEFAULT_CIPHERSUITE should be 0x0001', () => {
-    expect(DEFAULT_CIPHERSUITE).toBe(
-      'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'
-    );
+    expect(DEFAULT_CIPHERSUITE).toBe('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519');
     expect(ciphersuiteNameToId(DEFAULT_CIPHERSUITE)).toBe(1);
   });
 
@@ -63,41 +66,27 @@ describe('Ciphersuite management', () => {
     const suites = getSupportedCiphersuites();
     expect(suites.length).toBeGreaterThanOrEqual(7);
     expect(suites).toContain(DEFAULT_CIPHERSUITE);
-    expect(suites).toContain(
-      'MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519'
-    );
+    expect(suites).toContain('MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519');
   });
 
   it('ciphersuiteNameToId should convert names to IDs', () => {
+    expect(ciphersuiteNameToId('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519')).toBe(1);
+    expect(ciphersuiteNameToId('MLS_128_DHKEMP256_AES128GCM_SHA256_P256')).toBe(2);
     expect(
-      ciphersuiteNameToId('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519')
-    ).toBe(1);
-    expect(
-      ciphersuiteNameToId('MLS_128_DHKEMP256_AES128GCM_SHA256_P256')
-    ).toBe(2);
-    expect(
-      ciphersuiteNameToId(
-        'MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519'
-      )
+      ciphersuiteNameToId('MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519')
     ).toBe(3);
   });
 
   it('ciphersuiteIdToName should convert IDs to names', () => {
-    expect(ciphersuiteIdToName(1)).toBe(
-      'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519'
-    );
-    expect(ciphersuiteIdToName(2)).toBe(
-      'MLS_128_DHKEMP256_AES128GCM_SHA256_P256'
-    );
+    expect(ciphersuiteIdToName(1)).toBe('MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519');
+    expect(ciphersuiteIdToName(2)).toBe('MLS_128_DHKEMP256_AES128GCM_SHA256_P256');
     expect(ciphersuiteIdToName(3)).toBe(
       'MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519'
     );
   });
 
   it('ciphersuiteNameToId should throw for unknown names', () => {
-    expect(() =>
-      ciphersuiteNameToId('INVALID' as never)
-    ).toThrow('Unknown ciphersuite');
+    expect(() => ciphersuiteNameToId('INVALID' as never)).toThrow('Unknown ciphersuite');
   });
 
   it('ciphersuiteIdToName should throw for unknown IDs', () => {
@@ -158,7 +147,9 @@ describe('KeyPackage generation', () => {
       'Invalid Nostr pubkey hex'
     );
     await expect(
-      generateMlsKeyPackage('zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz')
+      generateMlsKeyPackage(
+        'zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz'
+      )
     ).rejects.toThrow('Invalid Nostr pubkey hex');
   });
 
@@ -166,9 +157,7 @@ describe('KeyPackage generation', () => {
     const kp1 = await generateMlsKeyPackage(TEST_PUBKEY_ALICE);
     const kp2 = await generateMlsKeyPackage(TEST_PUBKEY_ALICE);
     // Different init keys (random)
-    expect(bytesToHex(kp1.keyPackageBytes)).not.toBe(
-      bytesToHex(kp2.keyPackageBytes)
-    );
+    expect(bytesToHex(kp1.keyPackageBytes)).not.toBe(bytesToHex(kp2.keyPackageBytes));
   });
 });
 
@@ -197,7 +186,7 @@ describe('KeyPackage round-trip', () => {
 
 describe('KeyPackage parsing', () => {
   it('should parse raw KeyPackage format', async () => {
-    const { keyPackageBytes, keyPackage } =
+    const { keyPackageBytes, keyPackage: _keyPackage } =
       await generateMlsKeyPackage(TEST_PUBKEY_ALICE);
 
     // Raw format starts with 0x0001 0x0001
@@ -207,9 +196,7 @@ describe('KeyPackage parsing', () => {
     const parsed = parseKeyPackageBytes(keyPackageBytes);
     expect(parsed.version).toBe('mls10');
     expect(parsed.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
-    expect(bytesToHex(parsed.leafNode.credential.identity)).toBe(
-      TEST_PUBKEY_ALICE
-    );
+    expect(bytesToHex(parsed.leafNode.credential.identity)).toBe(TEST_PUBKEY_ALICE);
   });
 
   it('should parse MLSMessage-wrapped KeyPackage format', async () => {
@@ -231,15 +218,11 @@ describe('KeyPackage parsing', () => {
     const parsed = parseKeyPackageBytes(wrapped);
     expect(parsed.version).toBe('mls10');
     expect(parsed.cipherSuite).toBe(DEFAULT_CIPHERSUITE);
-    expect(bytesToHex(parsed.leafNode.credential.identity)).toBe(
-      TEST_PUBKEY_ALICE
-    );
+    expect(bytesToHex(parsed.leafNode.credential.identity)).toBe(TEST_PUBKEY_ALICE);
   });
 
   it('should reject too-short data', () => {
-    expect(() => parseKeyPackageBytes(new Uint8Array(3))).toThrow(
-      'too short'
-    );
+    expect(() => parseKeyPackageBytes(new Uint8Array(3))).toThrow('too short');
   });
 
   it('should reject OpenMLS format (0xd34d)', () => {
@@ -272,9 +255,7 @@ describe('Group creation', () => {
     const groupId = new Uint8Array(32).fill(0x42);
     const result = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
 
-    expect(bytesToHex(result.state.groupContext.groupId)).toBe(
-      bytesToHex(groupId)
-    );
+    expect(bytesToHex(result.state.groupContext.groupId)).toBe(bytesToHex(groupId));
     expect(result.state.groupContext.epoch).toBe(0n);
   });
 
@@ -284,15 +265,13 @@ describe('Group creation', () => {
 
     // Derive again from the same state
     const exporterSecret2 = await deriveExporterSecret(result.state);
-    expect(bytesToHex(result.exporterSecret)).toBe(
-      bytesToHex(exporterSecret2)
-    );
+    expect(bytesToHex(result.exporterSecret)).toBe(bytesToHex(exporterSecret2));
   });
 });
 
 // ─── Adding Members ─────────────────────────────────────────────────────────
 
-describe('Adding members', () => {
+describeHpke('Adding members', () => {
   it('should add a member and produce Welcome', async () => {
     const groupId = new Uint8Array(32).fill(0x01);
     const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
@@ -319,23 +298,19 @@ describe('Adding members', () => {
     const result = await addMlsGroupMembers(alice.state, [bobKP.keyPackage]);
 
     // Exporter secret should change after epoch advance
-    expect(bytesToHex(result.exporterSecret)).not.toBe(
-      bytesToHex(alice.exporterSecret)
-    );
+    expect(bytesToHex(result.exporterSecret)).not.toBe(bytesToHex(alice.exporterSecret));
   });
 });
 
 // ─── Joining from Welcome ───────────────────────────────────────────────────
 
-describe('Joining from Welcome', () => {
+describeHpke('Joining from Welcome', () => {
   it('should join from Welcome and match exporter secret', async () => {
     const groupId = new Uint8Array(32).fill(0x01);
     const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
 
     const bobKP = await generateMlsKeyPackage(TEST_PUBKEY_BOB);
-    const addResult = await addMlsGroupMembers(alice.state, [
-      bobKP.keyPackage,
-    ]);
+    const addResult = await addMlsGroupMembers(alice.state, [bobKP.keyPackage]);
 
     const joinResult = await joinMlsGroupFromWelcome(
       addResult.welcome,
@@ -364,7 +339,7 @@ describe('Joining from Welcome', () => {
 
 // ─── State Serialization ────────────────────────────────────────────────────
 
-describe('State serialization', () => {
+describeHpke('State serialization', () => {
   it('should encode/decode group state round-trip', async () => {
     const groupId = new Uint8Array(32).fill(0x42);
     const result = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
@@ -385,9 +360,7 @@ describe('State serialization', () => {
     const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
 
     const bobKP = await generateMlsKeyPackage(TEST_PUBKEY_BOB);
-    const addResult = await addMlsGroupMembers(alice.state, [
-      bobKP.keyPackage,
-    ]);
+    const addResult = await addMlsGroupMembers(alice.state, [bobKP.keyPackage]);
 
     const encoded = encodeWelcome(addResult.welcome);
     expect(encoded).toBeInstanceOf(Uint8Array);
@@ -406,9 +379,7 @@ describe('State serialization', () => {
     const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
 
     const bobKP = await generateMlsKeyPackage(TEST_PUBKEY_BOB);
-    const addResult = await addMlsGroupMembers(alice.state, [
-      bobKP.keyPackage,
-    ]);
+    const addResult = await addMlsGroupMembers(alice.state, [bobKP.keyPackage]);
 
     const encoded = encodeWelcome(addResult.welcome);
     const decoded = decodeWelcome(encoded);
@@ -421,9 +392,7 @@ describe('State serialization', () => {
     const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
 
     const bobKP = await generateMlsKeyPackage(TEST_PUBKEY_BOB);
-    const addResult = await addMlsGroupMembers(alice.state, [
-      bobKP.keyPackage,
-    ]);
+    const addResult = await addMlsGroupMembers(alice.state, [bobKP.keyPackage]);
 
     // Encode as raw (not MLSMessage-wrapped) — for backward compatibility
     const rawEncoded = encodeWelcomeRaw(addResult.welcome);
@@ -440,9 +409,7 @@ describe('State serialization', () => {
     const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
 
     const bobKP = await generateMlsKeyPackage(TEST_PUBKEY_BOB);
-    const addResult = await addMlsGroupMembers(alice.state, [
-      bobKP.keyPackage,
-    ]);
+    const addResult = await addMlsGroupMembers(alice.state, [bobKP.keyPackage]);
 
     const rawEncoded = encodeWelcomeRaw(addResult.welcome);
     const decoded = decodeWelcomeRaw(rawEncoded);
@@ -457,14 +424,12 @@ describe('State serialization', () => {
   });
 
   it('should throw on invalid Welcome bytes', () => {
-    expect(() => decodeWelcome(new Uint8Array([0x00]))).toThrow(
-      'Welcome data too short'
-    );
+    expect(() => decodeWelcome(new Uint8Array([0x00]))).toThrow('Welcome data too short');
   });
 
   it('should reject MLSMessage with wrong wireformat for Welcome', async () => {
     const groupId = new Uint8Array(32).fill(0x01);
-    const alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
+    const _alice = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
 
     // Encode a KeyPackage as MLSMessage (wireformat = mls_key_package, not mls_welcome)
     const aliceKP = await generateMlsKeyPackage(TEST_PUBKEY_ALICE);
@@ -491,9 +456,7 @@ describe('KeyPackage encode/decode', () => {
 
     expect(decoded.version).toBe(keyPackage.version);
     expect(decoded.cipherSuite).toBe(keyPackage.cipherSuite);
-    expect(bytesToHex(decoded.leafNode.credential.identity)).toBe(
-      TEST_PUBKEY_ALICE
-    );
+    expect(bytesToHex(decoded.leafNode.credential.identity)).toBe(TEST_PUBKEY_ALICE);
   });
 
   it('should throw on invalid KeyPackage bytes', () => {
@@ -507,7 +470,7 @@ describe('KeyPackage encode/decode', () => {
 
 describe('parseKeyPackageFromEvent', () => {
   it('should parse KeyPackage from event with base64-encoded content', async () => {
-    const { keyPackageBytes, keyPackage } =
+    const { keyPackageBytes, keyPackage: _keyPackage } =
       await generateMlsKeyPackage(TEST_PUBKEY_ALICE);
 
     // Create a minimal kind:443 event
@@ -578,8 +541,7 @@ describe('parseKeyPackageFromEvent', () => {
     // We test that the Nostr event parsing layer works correctly.
     const kaiContent =
       'AAEAASCKhfeFLzH4PUEeyWpmCr0JST3BNzWtVDZ/H0kF8VG9ISA/Som3+xsj4J97r2wU1ejvICqER4VPTekokqYDUiC/OiAI9Ugq822dT9imiB0MBPWxViaZE9pqGo5LyktYhU0a2wABIHvQfgMEFXNHjT8OVG8WGwTID9hfmy0pJI1PK2UUekw+AgABBAABenoGAAry7kpKAmpqBAABmpoBAAAAAGmPrOIAAAAAaf548gBAQOuyS4mpCjCA3jUYYJFpP2ouRlYog9ZFFuJg5wYlXIHbhI1Tdzr9qesN2Xk7NiLXkO/1YM3SPuiZcJIHTVFzw0gFbFY4F8a00iXC9f3KF4wBGkk8f1n8r1tQ8zEZvWKhFl80BPqMXvB8X3GQKFTi1VwpDuvIxAqkMRPsDWIA';
-    const kaiPubkey =
-      '7bd07e03041573478d3f0e546f161b04c80fd85f9b2d29248d4f2b65147a4c3e';
+    const kaiPubkey = '7bd07e03041573478d3f0e546f161b04c80fd85f9b2d29248d4f2b65147a4c3e';
 
     const event: UnsignedEvent = {
       kind: 443,
@@ -626,7 +588,7 @@ describe('parseKeyPackageFromEvent', () => {
 
 // ─── Full Integration Flow ──────────────────────────────────────────────────
 
-describe('Full MLS integration flow', () => {
+describeHpke('Full MLS integration flow', () => {
   it('Alice creates group → adds Bob → Bob joins → secrets match', async () => {
     // 1. Alice creates a group
     const groupId = new Uint8Array(32);
@@ -643,9 +605,7 @@ describe('Full MLS integration flow', () => {
     );
 
     // 3. Alice adds Bob
-    const addResult = await addMlsGroupMembers(aliceGroup.state, [
-      bobKP.keyPackage,
-    ]);
+    const addResult = await addMlsGroupMembers(aliceGroup.state, [bobKP.keyPackage]);
     expect(addResult.newState.groupContext.epoch).toBe(1n);
 
     // 4. Bob joins from Welcome
@@ -683,7 +643,7 @@ describe('Full MLS integration flow', () => {
 
 // ─── Exporter Secret ────────────────────────────────────────────────────────
 
-describe('Exporter secret', () => {
+describeHpke('Exporter secret', () => {
   it('deriveExporterSecret produces 32-byte result', async () => {
     const groupId = new Uint8Array(32).fill(0x01);
     const result = await createMlsGroup(groupId, TEST_PUBKEY_ALICE);
@@ -779,10 +739,8 @@ describe('parseKeyPackageRaw', () => {
   const xchatHex =
     '0001000120d9c5b1698f3b4c9272e6bf0e4bfff1ca7ab5adfd4c66edc04f3543386c4c392d20345fbcf1b59039747a6ef3ae8b4d1ec930f885be2755e2b7d14a3ce7a08927722069e18cd775e26d8b9ea0561666b324e33efb3600dd01721c27d01ed1f3dea8c30001404035626530663737633230393338356631336130343839346531383262393931663663646236313238636138613162356234316335383132396564343166326532020001020001080003000a0002f2ee00020001010000000069927320000000006a013f30004040cf026b5c84a32eb05fef53509acd800dd0c6ef859a59f6a8935d2f11bb9c427cc9d56b60bb0810359e7e15f1b62ccd697e4ff692b36e129fee123026d2306e0003000a0040409300dc1b8bd797815840db1d30ec376136290743dce03f209d5030aadf62d2bb83a322a6aee22cf31af96a736d3b958816fb699146739322e3e6cc21bfa35d09';
 
-  const kaiPubkey =
-    '7bd07e03041573478d3f0e546f161b04c80fd85f9b2d29248d4f2b65147a4c3e';
-  const xchatPubkey =
-    '5be0f77c209385f13a04894e182b991f6cdb6128ca8a1b5b41c58129ed41f2e2';
+  const kaiPubkey = '7bd07e03041573478d3f0e546f161b04c80fd85f9b2d29248d4f2b65147a4c3e';
+  const xchatPubkey = '5be0f77c209385f13a04894e182b991f6cdb6128ca8a1b5b41c58129ed41f2e2';
 
   it('should parse MDK KeyPackage (Kai)', () => {
     const bytes = Buffer.from(kaiMdkBase64, 'base64');

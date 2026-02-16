@@ -39,7 +39,10 @@ export const MARMOT_GROUP_DATA_MIN_SIZE = 2 + 32 + 2 + 2 + 2 + 2 + 32 + 32 + 12;
  * - 0b10xxxxxx ... (4 bytes total)   → 4 bytes
  * - 0b11xxxxxx ... (8 bytes total)   → 8 bytes
  */
-export function readVLI(buffer: Uint8Array, offset: number): { value: number; bytesRead: number } {
+export function readVLI(
+  buffer: Uint8Array,
+  offset: number
+): { value: number; bytesRead: number } {
   if (offset >= buffer.length) {
     throw new Error('VLI: offset out of bounds');
   }
@@ -51,13 +54,15 @@ export function readVLI(buffer: Uint8Array, offset: number): { value: number; by
     case 0: // 1-byte
       return { value: firstByte & 0x3f, bytesRead: 1 };
 
-    case 1: { // 2-byte
+    case 1: {
+      // 2-byte
       if (offset + 2 > buffer.length) throw new Error('VLI: truncated 2-byte integer');
       const value = ((firstByte & 0x3f) << 8) | buffer[offset + 1]!;
       return { value, bytesRead: 2 };
     }
 
-    case 2: { // 4-byte
+    case 2: {
+      // 4-byte
       if (offset + 4 > buffer.length) throw new Error('VLI: truncated 4-byte integer');
       const value =
         ((firstByte & 0x3f) << 24) |
@@ -67,7 +72,8 @@ export function readVLI(buffer: Uint8Array, offset: number): { value: number; by
       return { value, bytesRead: 4 };
     }
 
-    case 3: { // 8-byte (we only support up to 53-bit precision safely in JS)
+    case 3: {
+      // 8-byte (we only support up to 53-bit precision safely in JS)
       if (offset + 8 > buffer.length) throw new Error('VLI: truncated 8-byte integer');
       // JS can safely handle integers up to 2^53 - 1
       // Read as BigInt and convert
@@ -364,7 +370,8 @@ export function deserializeMarmotGroupDataV2(buffer: Uint8Array): MarmotGroupDat
   offset += 2;
 
   // nostr_group_id (32 bytes)
-  if (offset + 32 > buffer.length) throw new Error('v2: buffer too short for nostr_group_id');
+  if (offset + 32 > buffer.length)
+    throw new Error('v2: buffer too short for nostr_group_id');
   const nostrGroupId = buffer.slice(offset, offset + 32);
   offset += 32;
 
@@ -378,7 +385,8 @@ export function deserializeMarmotGroupDataV2(buffer: Uint8Array): MarmotGroupDat
   // description (VLI-prefixed)
   vli = readVLI(buffer, offset);
   offset += vli.bytesRead;
-  if (offset + vli.value > buffer.length) throw new Error('v2: invalid description length');
+  if (offset + vli.value > buffer.length)
+    throw new Error('v2: invalid description length');
   const description = decoder.decode(buffer.slice(offset, offset + vli.value));
   offset += vli.value;
 
@@ -386,12 +394,14 @@ export function deserializeMarmotGroupDataV2(buffer: Uint8Array): MarmotGroupDat
   vli = readVLI(buffer, offset);
   offset += vli.bytesRead;
   const adminEndOffset = offset + vli.value;
-  if (adminEndOffset > buffer.length) throw new Error('v2: invalid admin_pubkeys container length');
+  if (adminEndOffset > buffer.length)
+    throw new Error('v2: invalid admin_pubkeys container length');
   const adminPubkeys: string[] = [];
   while (offset < adminEndOffset) {
     const itemVli = readVLI(buffer, offset);
     offset += itemVli.bytesRead;
-    if (offset + itemVli.value > buffer.length) throw new Error('v2: invalid admin pubkey item length');
+    if (offset + itemVli.value > buffer.length)
+      throw new Error('v2: invalid admin pubkey item length');
     const pubkey = decoder.decode(buffer.slice(offset, offset + itemVli.value));
     adminPubkeys.push(pubkey);
     offset += itemVli.value;
@@ -401,12 +411,14 @@ export function deserializeMarmotGroupDataV2(buffer: Uint8Array): MarmotGroupDat
   vli = readVLI(buffer, offset);
   offset += vli.bytesRead;
   const relayEndOffset = offset + vli.value;
-  if (relayEndOffset > buffer.length) throw new Error('v2: invalid relays container length');
+  if (relayEndOffset > buffer.length)
+    throw new Error('v2: invalid relays container length');
   const relays: string[] = [];
   while (offset < relayEndOffset) {
     const itemVli = readVLI(buffer, offset);
     offset += itemVli.bytesRead;
-    if (offset + itemVli.value > buffer.length) throw new Error('v2: invalid relay item length');
+    if (offset + itemVli.value > buffer.length)
+      throw new Error('v2: invalid relay item length');
     const relay = decoder.decode(buffer.slice(offset, offset + itemVli.value));
     relays.push(relay);
     offset += itemVli.value;
@@ -415,22 +427,27 @@ export function deserializeMarmotGroupDataV2(buffer: Uint8Array): MarmotGroupDat
   // image_hash (VLI-prefixed, may be empty)
   vli = readVLI(buffer, offset);
   offset += vli.bytesRead;
-  if (offset + vli.value > buffer.length) throw new Error('v2: invalid image_hash length');
-  const imageHash = vli.value === 0 ? new Uint8Array(0) : buffer.slice(offset, offset + vli.value);
+  if (offset + vli.value > buffer.length)
+    throw new Error('v2: invalid image_hash length');
+  const imageHash =
+    vli.value === 0 ? new Uint8Array(0) : buffer.slice(offset, offset + vli.value);
   offset += vli.value;
 
   // image_key (VLI-prefixed, may be empty)
   vli = readVLI(buffer, offset);
   offset += vli.bytesRead;
   if (offset + vli.value > buffer.length) throw new Error('v2: invalid image_key length');
-  const imageKey = vli.value === 0 ? new Uint8Array(0) : buffer.slice(offset, offset + vli.value);
+  const imageKey =
+    vli.value === 0 ? new Uint8Array(0) : buffer.slice(offset, offset + vli.value);
   offset += vli.value;
 
   // image_nonce (VLI-prefixed, may be empty)
   vli = readVLI(buffer, offset);
   offset += vli.bytesRead;
-  if (offset + vli.value > buffer.length) throw new Error('v2: invalid image_nonce length');
-  const imageNonce = vli.value === 0 ? new Uint8Array(0) : buffer.slice(offset, offset + vli.value);
+  if (offset + vli.value > buffer.length)
+    throw new Error('v2: invalid image_nonce length');
+  const imageNonce =
+    vli.value === 0 ? new Uint8Array(0) : buffer.slice(offset, offset + vli.value);
   offset += vli.value;
 
   // image_upload_key (VLI-prefixed, may be empty, v2 only)
@@ -438,8 +455,10 @@ export function deserializeMarmotGroupDataV2(buffer: Uint8Array): MarmotGroupDat
   if (offset < buffer.length) {
     vli = readVLI(buffer, offset);
     offset += vli.bytesRead;
-    if (offset + vli.value > buffer.length) throw new Error('v2: invalid image_upload_key length');
-    imageUploadKey = vli.value === 0 ? undefined : buffer.slice(offset, offset + vli.value);
+    if (offset + vli.value > buffer.length)
+      throw new Error('v2: invalid image_upload_key length');
+    imageUploadKey =
+      vli.value === 0 ? undefined : buffer.slice(offset, offset + vli.value);
   }
 
   return {
@@ -633,7 +652,9 @@ export function validateMarmotGroupData(data: MarmotGroupData): void {
       throw new Error('imageUploadKey is only supported in version 2+');
     }
     if (data.imageUploadKey.length !== 0 && data.imageUploadKey.length !== 32) {
-      throw new Error(`imageUploadKey must be 0 or 32 bytes, got ${data.imageUploadKey.length}`);
+      throw new Error(
+        `imageUploadKey must be 0 or 32 bytes, got ${data.imageUploadKey.length}`
+      );
     }
   }
 }

@@ -347,7 +347,7 @@ describe('MIP-01: Group Construction', () => {
   describe('VLI Encoding (RFC 9000 §16)', () => {
     it('should encode/decode 1-byte values (0-63)', () => {
       const buffer = new Uint8Array(10);
-      
+
       // Test boundary values
       expect(writeVLI(buffer, 0, 0)).toBe(1);
       expect(buffer[0]).toBe(0x00);
@@ -437,7 +437,9 @@ describe('MIP-01: Group Construction', () => {
       const deserialized = deserializeMarmotGroupDataV2(serialized);
 
       expect(deserialized.version).toBe(2);
-      expect(bytesToHex(deserialized.nostrGroupId)).toBe(bytesToHex(original.nostrGroupId));
+      expect(bytesToHex(deserialized.nostrGroupId)).toBe(
+        bytesToHex(original.nostrGroupId)
+      );
       expect(deserialized.name).toBe(original.name);
       expect(deserialized.description).toBe(original.description);
       expect(deserialized.adminPubkeys).toEqual(original.adminPubkeys);
@@ -461,7 +463,9 @@ describe('MIP-01: Group Construction', () => {
       expect(bytesToHex(deserialized.imageHash)).toBe(bytesToHex(data.imageHash));
       expect(bytesToHex(deserialized.imageKey)).toBe(bytesToHex(data.imageKey));
       expect(bytesToHex(deserialized.imageNonce)).toBe(bytesToHex(data.imageNonce));
-      expect(bytesToHex(deserialized.imageUploadKey!)).toBe(bytesToHex(data.imageUploadKey));
+      expect(bytesToHex(deserialized.imageUploadKey!)).toBe(
+        bytesToHex(data.imageUploadKey)
+      );
     });
 
     it('should handle multiple admin pubkeys in v2 (individually VLI-prefixed)', () => {
@@ -471,7 +475,11 @@ describe('MIP-01: Group Construction', () => {
       const serialized = serializeMarmotGroupDataV2(data);
       const deserialized = deserializeMarmotGroupDataV2(serialized);
 
-      expect(deserialized.adminPubkeys).toEqual([testPubkey1, testPubkey2, 'c'.repeat(64)]);
+      expect(deserialized.adminPubkeys).toEqual([
+        testPubkey1,
+        testPubkey2,
+        'c'.repeat(64),
+      ]);
     });
 
     it('should handle multiple relays in v2 (individually VLI-prefixed)', () => {
@@ -481,7 +489,12 @@ describe('MIP-01: Group Construction', () => {
       const serialized = serializeMarmotGroupDataV2(data);
       const deserialized = deserializeMarmotGroupDataV2(serialized);
 
-      expect(deserialized.relays).toEqual(['wss://r1.com', 'wss://r2.com', 'wss://r3.com', 'wss://r4.com']);
+      expect(deserialized.relays).toEqual([
+        'wss://r1.com',
+        'wss://r2.com',
+        'wss://r3.com',
+        'wss://r4.com',
+      ]);
     });
 
     it('should auto-detect v2 and deserialize correctly', () => {
@@ -501,7 +514,8 @@ describe('MIP-01: Group Construction', () => {
 
     it('should deserialize real MDK v2 data (212 bytes)', () => {
       // Real test data from MDK/0.5.3
-      const hexData = '0002468bf188103161e4510e7c5686cfb868cb50e3fd5c132f040f0534f1833e439b1e436861742077697468206e707562313373687035376839387367753478770f4d61726d6f7420434c49206368617440424040323965373166386562383961353731343834643762353938373466323234613565326165383761663535616365616633336364376435343433653230303636363a0d7773733a2f2f6e6f732e6c6f6c147773733a2f2f72656c61792e64616d75732e696f167773733a2f2f72656c61792e7072696d616c2e6e657400000000';
+      const hexData =
+        '0002468bf188103161e4510e7c5686cfb868cb50e3fd5c132f040f0534f1833e439b1e436861742077697468206e707562313373687035376839387367753478770f4d61726d6f7420434c49206368617440424040323965373166386562383961353731343834643762353938373466323234613565326165383761663535616365616633336364376435343433653230303636363a0d7773733a2f2f6e6f732e6c6f6c147773733a2f2f72656c61792e64616d75732e696f167773733a2f2f72656c61792e7072696d616c2e6e657400000000';
       const buffer = hexToBytes(hexData);
 
       expect(buffer.length).toBe(212);
@@ -511,8 +525,14 @@ describe('MIP-01: Group Construction', () => {
       expect(data.version).toBe(2);
       expect(data.name).toBe('Chat with npub13shp57h98sgu4xw');
       expect(data.description).toBe('Marmot CLI chat');
-      expect(data.adminPubkeys).toEqual(['29e71f8eb89a571484d7b59874f224a5e2ae87af55aceaf33cd7d5443e200666']);
-      expect(data.relays).toEqual(['wss://nos.lol', 'wss://relay.damus.io', 'wss://relay.primal.net']);
+      expect(data.adminPubkeys).toEqual([
+        '29e71f8eb89a571484d7b59874f224a5e2ae87af55aceaf33cd7d5443e200666',
+      ]);
+      expect(data.relays).toEqual([
+        'wss://nos.lol',
+        'wss://relay.damus.io',
+        'wss://relay.primal.net',
+      ]);
       expect(data.imageHash.length).toBe(0);
       expect(data.imageKey.length).toBe(0);
       expect(data.imageNonce.length).toBe(0);
@@ -558,7 +578,9 @@ describe('MIP-01: Group Construction', () => {
       const data = makeTestGroupDataV2();
       data.imageHash = new Uint8Array(16); // Wrong size
 
-      expect(() => validateMarmotGroupData(data)).toThrow('image_hash must be 0 or 32 bytes');
+      expect(() => validateMarmotGroupData(data)).toThrow(
+        'image_hash must be 0 or 32 bytes'
+      );
     });
   });
 
@@ -576,7 +598,7 @@ describe('MIP-01: Group Construction', () => {
     it('should detect and route v1 correctly', () => {
       const v1Data = makeTestGroupData();
       const serialized = serializeMarmotGroupData(v1Data);
-      
+
       expect(detectAndValidateVersion(serialized)).toBe(1);
       expect(validateStructure(serialized)).toBe(true);
     });
