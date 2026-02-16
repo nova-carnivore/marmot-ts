@@ -142,7 +142,7 @@ export async function addGroupMembers(
       parsedKeyPackages.map((m) => m.mlsKeyPackage),
       ciphersuiteName
     );
-  } catch (err) {
+  } catch {
     // If MLS add fails, all members fail
     for (const pkp of parsedKeyPackages) {
       failed.push(pkp.pubkey);
