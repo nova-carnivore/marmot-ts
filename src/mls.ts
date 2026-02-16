@@ -28,6 +28,7 @@ import {
   defaultProposalTypes,
   unsafeTestingAuthenticationService,
   protocolVersions,
+  makeCustomExtension,
   wireformats,
   keyPackageEncoder as tsKeyPackageEncoder,
   keyPackageDecoder as tsKeyPackageDecoder,
@@ -54,6 +55,7 @@ import type {
   Credential,
   Proposal,
   MlsContext,
+  GroupContextExtension,
 } from 'ts-mls';
 
 import type { ParsedKeyPackage, SignedEvent, UnsignedEvent } from './types.js';
@@ -399,7 +401,8 @@ export interface MlsGroupResult {
 export async function createMlsGroup(
   groupId: Uint8Array,
   identity: string,
-  ciphersuite: CiphersuiteName = DEFAULT_CIPHERSUITE
+  ciphersuite: CiphersuiteName = DEFAULT_CIPHERSUITE,
+  groupExtensions?: GroupContextExtension[]
 ): Promise<MlsGroupResult> {
   const context = await createMlsContext(ciphersuite);
 
@@ -414,7 +417,7 @@ export async function createMlsGroup(
     groupId,
     keyPackage,
     privateKeyPackage,
-    extensions: [],
+    extensions: groupExtensions ?? [],
   });
 
   const encodedState = encode(clientStateEncoder, state);
@@ -1095,10 +1098,12 @@ export function parseKeyPackageRaw(bytes: Uint8Array): ParsedKeyPackageRaw {
 // ─── Re-exported Types ──────────────────────────────────────────────────────
 // Re-export ts-mls types so consumers don't need a direct ts-mls dependency.
 
-export type { CiphersuiteName, ClientState, GroupState };
+export type { CiphersuiteName, ClientState, GroupState, GroupContextExtension };
 
 export type { MlsMessage, MlsFramedMessage, MlsWelcomeMessage };
 
 export type { TsKeyPackage as KeyPackage };
 export type { TsPrivateKeyPackage as PrivateKeyPackage };
 export type { TsWelcome as Welcome };
+
+export { makeCustomExtension };
