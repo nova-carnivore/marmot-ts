@@ -7,6 +7,29 @@
 
 TypeScript library for the **[Marmot Protocol](https://github.com/marmot-protocol/marmot)** — secure, decentralized group messaging combining [MLS (RFC 9420)](https://www.rfc-editor.org/rfc/rfc9420.html) with [Nostr](https://github.com/nostr-protocol/nostr).
 
+> **⚠️ Status: Work In Progress — Not Production Ready**
+>
+> This library implements all MIP specifications and has 258+ passing tests, but **MLS interoperability with [MDK](https://github.com/marmot-protocol/mdk) (the Rust reference implementation) is incomplete.**
+>
+> **What works:**
+> - ✅ MDK → marmot-ts: Receiving Welcome events from MDK, joining MLS groups, decrypting group data (v2 wire format)
+> - ✅ Nostr event creation/parsing for all MIP kinds (443, 444, 445)
+> - ✅ NIP-59 gift wrapping for Welcome events
+> - ✅ MLS KeyPackage generation, group creation, Welcome/Commit production (via ts-mls)
+> - ✅ All crypto: Ed25519, X25519, HKDF, ChaCha20-Poly1305
+> - ✅ Node.js 20+, Bun, Deno — all CI green
+>
+> **What doesn't work:**
+> - ❌ marmot-ts → MDK: Welcome messages produced by ts-mls are rejected by MDK ("invalid welcome message")
+> - ❌ MDK rejects marmot-ts KeyPackages when creating new groups: `"The capabilities of the add proposal are insufficient for this group"` — despite capabilities being set correctly in source code
+>
+> **Root cause (best understanding):**
+> The underlying MLS library ([ts-mls](https://github.com/LukaJCB/ts-mls)) has encoding incompatibilities with [OpenMLS](https://github.com/openmls/openmls) (used by MDK). Specifically:
+> - In **browser contexts**, ts-mls drops the `0xf2ee` (marmot_group_data) extension from KeyPackage capabilities during encoding, even though the source code correctly specifies it. KeyPackages generated in Node.js include it correctly. This appears to be a ts-mls browser serialization bug.
+> - The MLS Welcome binary encoding produced by ts-mls is not accepted by OpenMLS, even when capabilities match.
+>
+> **Implication:** This library can receive and process messages from MDK/marmot-cli users, but cannot initiate new groups that MDK users can join. Bidirectional messaging requires the group to be created by the MDK side.
+
 ## Features
 
 - 🔐 **Full MIP implementation** — MIP-00 through MIP-04
