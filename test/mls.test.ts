@@ -8,6 +8,8 @@ import {
   generateMlsKeyPackage,
   parseKeyPackageBytes,
   parseKeyPackageFromEvent,
+  readMlsVarint,
+  parseKeyPackageRaw,
   createMlsGroup,
   addMlsGroupMembers,
   joinMlsGroupFromWelcome,
@@ -698,5 +700,222 @@ describe('Exporter secret', () => {
     const s1 = await deriveExporterSecret(result.state);
     const s2 = await deriveExporterSecret(result.state);
     expect(bytesToHex(s1)).toBe(bytesToHex(s2));
+  });
+});
+
+// ─── MLS Varint ─────────────────────────────────────────────────────────────
+
+describe('readMlsVarint', () => {
+  it('should read 1-byte varint (prefix 00)', () => {
+    // 0x20 = 0b00100000 → value = 32
+    const [value, off] = readMlsVarint(new Uint8Array([0x20]), 0);
+    expect(value).toBe(32);
+    expect(off).toBe(1);
+  });
+
+  it('should read 1-byte varint max value (63)', () => {
+    // 0x3F = 0b00111111 → value = 63
+    const [value, off] = readMlsVarint(new Uint8Array([0x3f]), 0);
+    expect(value).toBe(63);
+    expect(off).toBe(1);
+  });
+
+  it('should read 1-byte varint value 0', () => {
+    const [value, off] = readMlsVarint(new Uint8Array([0x00]), 0);
+    expect(value).toBe(0);
+    expect(off).toBe(1);
+  });
+
+  it('should read 2-byte varint (prefix 01)', () => {
+    // 0x41 0x00 = 0b01000001 00000000 → value = (1 << 8) | 0 = 256
+    const [value, off] = readMlsVarint(new Uint8Array([0x41, 0x00]), 0);
+    expect(value).toBe(256);
+    expect(off).toBe(2);
+  });
+
+  it('should read 2-byte varint with typical KeyPackage value', () => {
+    // 0x40 0x40 = value = (0 << 8) | 0x40 = 64
+    const [value, off] = readMlsVarint(new Uint8Array([0x40, 0x40]), 0);
+    expect(value).toBe(64);
+    expect(off).toBe(2);
+  });
+
+  it('should read 4-byte varint (prefix 10)', () => {
+    // 0x80 0x00 0x01 0x00 → value = (0 << 24) | (0 << 16) | (1 << 8) | 0 = 256
+    const [value, off] = readMlsVarint(new Uint8Array([0x80, 0x00, 0x01, 0x00]), 0);
+    expect(value).toBe(256);
+    expect(off).toBe(4);
+  });
+
+  it('should throw on invalid prefix 0b11', () => {
+    // 0xC0 = 0b11000000
+    expect(() => readMlsVarint(new Uint8Array([0xc0]), 0)).toThrow('invalid prefix');
+  });
+
+  it('should throw on out-of-bounds offset', () => {
+    expect(() => readMlsVarint(new Uint8Array([0x00]), 1)).toThrow('out of bounds');
+  });
+
+  it('should throw on insufficient data for 2-byte varint', () => {
+    expect(() => readMlsVarint(new Uint8Array([0x40]), 0)).toThrow('insufficient data');
+  });
+
+  it('should read varint at non-zero offset', () => {
+    const data = new Uint8Array([0xff, 0xff, 0x05]);
+    const [value, off] = readMlsVarint(data, 2);
+    expect(value).toBe(5);
+    expect(off).toBe(3);
+  });
+});
+
+// ─── parseKeyPackageRaw ─────────────────────────────────────────────────────
+
+describe('parseKeyPackageRaw', () => {
+  // Real Kai MDK/0.5.3 KeyPackage (base64-encoded, from relay)
+  const kaiMdkBase64 =
+    'AAEAASCKhfeFLzH4PUEeyWpmCr0JST3BNzWtVDZ/H0kF8VG9ISA/Som3+xsj4J97r2wU1ejvICqER4VPTekokqYDUiC/OiAI9Ugq822dT9imiB0MBPWxViaZE9pqGo5LyktYhU0a2wABIHvQfgMEFXNHjT8OVG8WGwTID9hfmy0pJI1PK2UUekw+AgABBAABenoGAAry7kpKAmpqBAABmpoBAAAAAGmPrOIAAAAAaf548gBAQOuyS4mpCjCA3jUYYJFpP2ouRlYog9ZFFuJg5wYlXIHbhI1Tdzr9qesN2Xk7ZUyecp4PbgjrsXIGcYd+aHO4PA8DAAoAQEAbISx5lmK9dAtc9JSps5FPvpwm0sxC3ZqDXoHyNx7/oYxHlROeWuY7iW5tXcdgMssQxkYO/BFStRoxtwj9ZTwC';
+
+  // Real XChat (marmot-chat) KeyPackage (hex-encoded, from relay)
+  const xchatHex =
+    '0001000120d9c5b1698f3b4c9272e6bf0e4bfff1ca7ab5adfd4c66edc04f3543386c4c392d20345fbcf1b59039747a6ef3ae8b4d1ec930f885be2755e2b7d14a3ce7a08927722069e18cd775e26d8b9ea0561666b324e33efb3600dd01721c27d01ed1f3dea8c30001404035626530663737633230393338356631336130343839346531383262393931663663646236313238636138613162356234316335383132396564343166326532020001020001080003000a0002f2ee00020001010000000069927320000000006a013f30004040cf026b5c84a32eb05fef53509acd800dd0c6ef859a59f6a8935d2f11bb9c427cc9d56b60bb0810359e7e15f1b62ccd697e4ff692b36e129fee123026d2306e0003000a0040409300dc1b8bd797815840db1d30ec376136290743dce03f209d5030aadf62d2bb83a322a6aee22cf31af96a736d3b958816fb699146739322e3e6cc21bfa35d09';
+
+  const kaiPubkey =
+    '7bd07e03041573478d3f0e546f161b04c80fd85f9b2d29248d4f2b65147a4c3e';
+  const xchatPubkey =
+    '5be0f77c209385f13a04894e182b991f6cdb6128ca8a1b5b41c58129ed41f2e2';
+
+  it('should parse MDK KeyPackage (Kai)', () => {
+    const bytes = Buffer.from(kaiMdkBase64, 'base64');
+    const parsed = parseKeyPackageRaw(bytes);
+
+    expect(parsed.version).toBe(1);
+    expect(parsed.cipherSuite).toBe(1);
+    expect(parsed.initKey.length).toBe(32);
+    expect(parsed.encryptionKey.length).toBe(32);
+    expect(parsed.signatureKey.length).toBe(32);
+    expect(parsed.credentialType).toBe(1); // basic
+    expect(parsed.identity.length).toBe(32); // raw 32-byte pubkey
+    expect(parsed.identityHex).toBe(kaiPubkey);
+    expect(parsed.leafNodeSource).toBe(1); // key_package
+    expect(parsed.notBefore).toBeDefined();
+    expect(parsed.notAfter).toBeDefined();
+    expect(parsed.leafSignature.length).toBe(64); // Ed25519
+    expect(parsed.kpSignature.length).toBe(64);
+    expect(parsed.totalBytes).toBe(bytes.length); // consumed all bytes
+  });
+
+  it('should parse MDK capabilities with GREASE values', () => {
+    const bytes = Buffer.from(kaiMdkBase64, 'base64');
+    const parsed = parseKeyPackageRaw(bytes);
+
+    // MDK capabilities:
+    expect(parsed.capabilities.versions).toEqual([1]); // mls10
+    expect(parsed.capabilities.ciphersuites).toContain(1); // 0x0001
+    expect(parsed.capabilities.ciphersuites).toContain(0x7a7a); // GREASE
+    expect(parsed.capabilities.extensions).toContain(0x000a); // ratchet_tree / last_resort
+    expect(parsed.capabilities.extensions).toContain(0xf2ee); // marmot_group_data
+    expect(parsed.capabilities.extensions).toContain(0x4a4a); // GREASE
+    expect(parsed.capabilities.credentials).toContain(1); // basic
+    expect(parsed.capabilities.credentials).toContain(0x9a9a); // GREASE
+  });
+
+  it('should parse MDK kp_extensions (last_resort)', () => {
+    const bytes = Buffer.from(kaiMdkBase64, 'base64');
+    const parsed = parseKeyPackageRaw(bytes);
+
+    // kp_extensions should contain last_resort (0x000a) with empty data
+    expect(parsed.kpExtensions.length).toBe(1);
+    expect(parsed.kpExtensions[0]!.type).toBe(0x000a);
+    expect(parsed.kpExtensions[0]!.data.length).toBe(0);
+  });
+
+  it('should parse XChat KeyPackage (marmot-chat)', () => {
+    const bytes = hexToBytes(xchatHex);
+    const parsed = parseKeyPackageRaw(bytes);
+
+    expect(parsed.version).toBe(1);
+    expect(parsed.cipherSuite).toBe(1);
+    expect(parsed.initKey.length).toBe(32);
+    expect(parsed.encryptionKey.length).toBe(32);
+    expect(parsed.signatureKey.length).toBe(32);
+    expect(parsed.credentialType).toBe(1);
+    // XChat uses 64-byte hex-encoded ASCII identity
+    expect(parsed.identity.length).toBe(64);
+    expect(parsed.identityHex).toBe(xchatPubkey);
+    expect(parsed.leafNodeSource).toBe(1);
+    expect(parsed.leafSignature.length).toBe(64);
+    expect(parsed.kpSignature.length).toBe(64);
+    expect(parsed.totalBytes).toBe(bytes.length);
+  });
+
+  it('should parse XChat capabilities', () => {
+    const bytes = hexToBytes(xchatHex);
+    const parsed = parseKeyPackageRaw(bytes);
+
+    expect(parsed.capabilities.versions).toEqual([1]);
+    expect(parsed.capabilities.ciphersuites).toContain(1);
+    // XChat lists extensions 0x0003, 0x000a, 0x0002, 0xf2ee
+    expect(parsed.capabilities.extensions).toContain(0x000a);
+    expect(parsed.capabilities.extensions).toContain(0xf2ee);
+    expect(parsed.capabilities.credentials).toContain(1);
+  });
+
+  it('should parse ts-mls generated KeyPackage', async () => {
+    const { keyPackageBytes } = await generateMlsKeyPackage(TEST_PUBKEY_ALICE);
+    const parsed = parseKeyPackageRaw(keyPackageBytes);
+
+    expect(parsed.version).toBe(1);
+    expect(parsed.cipherSuite).toBe(1);
+    expect(parsed.identityHex).toBe(TEST_PUBKEY_ALICE);
+    expect(parsed.credentialType).toBe(1);
+    expect(parsed.leafNodeSource).toBe(1);
+    expect(parsed.leafSignature.length).toBe(64);
+    expect(parsed.kpSignature.length).toBe(64);
+    expect(parsed.totalBytes).toBe(keyPackageBytes.length);
+  });
+
+  it('should handle MLSMessage-wrapped KeyPackage', async () => {
+    const { keyPackage } = await generateMlsKeyPackage(TEST_PUBKEY_BOB);
+    const wrapped = encodeMlsMessage({
+      version: 'mls10',
+      wireformat: 'mls_key_package',
+      keyPackage,
+    });
+
+    // Wrapped starts with 0x0001 0x0005
+    expect(wrapped[0]).toBe(0x00);
+    expect(wrapped[1]).toBe(0x01);
+    expect(wrapped[2]).toBe(0x00);
+    expect(wrapped[3]).toBe(0x05);
+
+    const parsed = parseKeyPackageRaw(wrapped);
+    expect(parsed.version).toBe(1);
+    expect(parsed.identityHex).toBe(TEST_PUBKEY_BOB);
+  });
+
+  it('should extract matching identity from both parsers', async () => {
+    const { keyPackageBytes } = await generateMlsKeyPackage(TEST_PUBKEY_ALICE);
+
+    const raw = parseKeyPackageRaw(keyPackageBytes);
+    const tsml = parseKeyPackageBytes(keyPackageBytes);
+
+    expect(raw.identityHex).toBe(bytesToHex(tsml.leafNode.credential.identity));
+  });
+
+  it('should reject too-short data', () => {
+    expect(() => parseKeyPackageRaw(new Uint8Array(3))).toThrow('too short');
+  });
+
+  it('should parse lifetime correctly for MDK KeyPackage', () => {
+    const bytes = Buffer.from(kaiMdkBase64, 'base64');
+    const parsed = parseKeyPackageRaw(bytes);
+
+    // not_before and not_after should be reasonable Unix timestamps
+    expect(parsed.notBefore).toBeDefined();
+    expect(parsed.notAfter).toBeDefined();
+    expect(parsed.notBefore!).toBe(1771023586n);
+    expect(parsed.notAfter!).toBe(1778284786n);
+    // not_after > not_before
+    expect(parsed.notAfter!).toBeGreaterThan(parsed.notBefore!);
   });
 });

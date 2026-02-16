@@ -168,6 +168,7 @@ export {
 // ─── MLS Runtime Operations ────────────────────────────────────────────────
 export {
   DEFAULT_CIPHERSUITE,
+  marmotCapabilities,
   getCiphersuiteImpl,
   getSupportedCiphersuites,
   ciphersuiteNameToId,
@@ -175,6 +176,8 @@ export {
   generateMlsKeyPackage,
   parseKeyPackageBytes,
   parseKeyPackageFromEvent,
+  parseKeyPackageRaw,
+  readMlsVarint,
   createMlsGroup,
   addMlsGroupMembers,
   joinMlsGroupFromWelcome,
@@ -193,6 +196,9 @@ export {
 export type {
   GeneratedKeyPackage,
   ParsedKeyPackageFromEvent,
+  ParsedKeyPackageRaw,
+  ParsedCapabilities,
+  ParsedExtension,
   MlsGroupResult,
   AddMembersResult,
   JoinGroupResult,

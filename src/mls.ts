@@ -21,10 +21,11 @@ import {
   getCiphersuiteImpl as tsGetCiphersuiteImpl,
   getCiphersuiteFromName,
   ciphersuites as tsCiphersuites,
-  defaultCapabilities,
   defaultLifetime,
   emptyPskIndex,
 } from 'ts-mls';
+
+import type { Capabilities } from 'ts-mls';
 
 import { defaultClientConfig } from 'ts-mls/clientConfig.js';
 
@@ -131,6 +132,39 @@ export function ciphersuiteIdToName(id: number): CiphersuiteName {
   throw new Error(`Unknown ciphersuite ID: ${id}`);
 }
 
+// ─── Marmot Capabilities ────────────────────────────────────────────────────
+
+/**
+ * Marmot-specific MLS capabilities.
+ *
+ * Overrides ts-mls's defaultCapabilities() which advertises all 19+ ciphersuites,
+ * adds random GREASE values, and omits required extensions — making KeyPackages
+ * incompatible with OpenMLS-based clients (marmot-cli, Kai-MDK).
+ *
+ * OpenMLS rejects KeyPackages whose capabilities don't include extension type
+ * 0x000a (ratchet_tree), and bloated ciphersuite lists cause "insufficient
+ * capabilities" errors during Add proposals.
+ *
+ * This function returns a minimal, interop-tested capabilities set:
+ * - versions: [mls10]
+ * - ciphersuites: [0x0001] (AES-128-GCM + Ed25519) — the Marmot default
+ * - extensions: [0x000a] (ratchet_tree — required by OpenMLS)
+ * - proposals: [] (no custom proposal types)
+ * - credentials: [basic] (Marmot uses basic credentials with Nostr pubkey identity)
+ */
+export function marmotCapabilities(): Capabilities {
+  return {
+    versions: ['mls10'],
+    ciphersuites: [
+      'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519',       // 0x0001
+      'MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519', // 0x0003
+    ],
+    extensions: [0x000a], // ratchet_tree — required for OpenMLS interop
+    proposals: [],
+    credentials: ['basic'],
+  };
+}
+
 // ─── KeyPackage Generation ──────────────────────────────────────────────────
 
 /**
@@ -151,6 +185,9 @@ export interface GeneratedKeyPackage {
  * The identity is the raw 32-byte Nostr public key.
  * The output keyPackageBytes are in RAW KeyPackage format (NOT MLSMessage-wrapped),
  * matching what marmot-cli, MDK, and marmot-chat all use.
+ *
+ * Uses marmotCapabilities() instead of ts-mls's defaultCapabilities() for
+ * interoperability with OpenMLS-based clients.
  *
  * @param identity - Nostr pubkey hex (64 chars)
  * @param ciphersuite - Ciphersuite name (default: DEFAULT_CIPHERSUITE)
@@ -176,7 +213,7 @@ export async function generateMlsKeyPackage(
 
   const { publicPackage, privatePackage } = await tsGenerateKeyPackage(
     credential,
-    defaultCapabilities(),
+    marmotCapabilities(),
     defaultLifetime,
     [], // extensions
     cs,
@@ -610,6 +647,376 @@ function hexToBytes(hex: string): Uint8Array {
     bytes[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
   }
   return bytes;
+}
+
+function bytesToHexInternal(bytes: Uint8Array): string {
+  return Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+// ─── MLS Varint + Standalone KeyPackage Parser ──────────────────────────────
+
+/**
+ * Read an MLS variable-length integer (QUIC-style, RFC 9420 Section 2.1.2).
+ *
+ * Top 2 bits of the first byte determine the prefix size:
+ * - `00xxxxxx` = 1 byte, value = byte & 0x3F (max 63)
+ * - `01xxxxxx xxxxxxxx` = 2 bytes, value = (first & 0x3F)<<8 | second (max 16383)
+ * - `10xxxxxx ...` = 4 bytes, value = (first & 0x3F)<<24 | ... (max 1073741823)
+ * - `11xxxxxx` = invalid
+ *
+ * @param data - The byte array to read from
+ * @param offset - Starting offset in the byte array
+ * @returns Tuple of [value, newOffset]
+ */
+export function readMlsVarint(
+  data: Uint8Array,
+  offset: number
+): [value: number, newOffset: number] {
+  if (offset >= data.length) {
+    throw new Error(`readMlsVarint: offset ${offset} out of bounds (length ${data.length})`);
+  }
+
+  const first = data[offset]!;
+  const prefix = first >> 6;
+
+  if (prefix === 0) {
+    // 1-byte: 00xxxxxx
+    return [first & 0x3f, offset + 1];
+  }
+
+  if (prefix === 1) {
+    // 2-byte: 01xxxxxx xxxxxxxx
+    if (offset + 1 >= data.length) {
+      throw new Error('readMlsVarint: insufficient data for 2-byte varint');
+    }
+    const value = ((first & 0x3f) << 8) | data[offset + 1]!;
+    return [value, offset + 2];
+  }
+
+  if (prefix === 2) {
+    // 4-byte: 10xxxxxx xxxxxxxx xxxxxxxx xxxxxxxx
+    if (offset + 3 >= data.length) {
+      throw new Error('readMlsVarint: insufficient data for 4-byte varint');
+    }
+    const value =
+      ((first & 0x3f) << 24) |
+      (data[offset + 1]! << 16) |
+      (data[offset + 2]! << 8) |
+      data[offset + 3]!;
+    return [value, offset + 4];
+  }
+
+  // prefix === 3 (0b11) — invalid
+  throw new Error(
+    `readMlsVarint: invalid prefix 0b11 at offset ${offset} (byte 0x${first.toString(16).padStart(2, '0')})`
+  );
+}
+
+/**
+ * Parsed MLS capabilities from a KeyPackage.
+ */
+export interface ParsedCapabilities {
+  /** MLS version IDs (e.g. [1] for mls10) */
+  versions: number[];
+  /** Ciphersuite IDs (e.g. [1, 0x7a7a]) — includes GREASE values */
+  ciphersuites: number[];
+  /** Extension type IDs (e.g. [0x000a, 0xf2ee]) — includes GREASE values */
+  extensions: number[];
+  /** Proposal type IDs — includes GREASE values */
+  proposals: number[];
+  /** Credential type IDs (e.g. [1]) — includes GREASE values */
+  credentials: number[];
+}
+
+/**
+ * Parsed KeyPackage extension.
+ */
+export interface ParsedExtension {
+  /** Extension type ID */
+  type: number;
+  /** Raw extension data */
+  data: Uint8Array;
+}
+
+/**
+ * Result of standalone KeyPackage parsing with all raw fields.
+ *
+ * Unlike `parseKeyPackageBytes()` which delegates to ts-mls, this parser
+ * reads the wire format directly using MLS varint decoding. Useful for
+ * debugging interop issues and analyzing KeyPackages from any MLS implementation.
+ */
+export interface ParsedKeyPackageRaw {
+  /** MLS protocol version (uint16, 1 = mls10) */
+  version: number;
+  /** Ciphersuite ID (uint16, e.g. 1 = AES-128-GCM + Ed25519) */
+  cipherSuite: number;
+  /** HPKE init key (raw bytes) */
+  initKey: Uint8Array;
+  /** HPKE encryption key (raw bytes) */
+  encryptionKey: Uint8Array;
+  /** Signature key (raw bytes, typically 32 bytes for Ed25519) */
+  signatureKey: Uint8Array;
+  /** Credential type (uint16, 1 = basic) */
+  credentialType: number;
+  /** Identity bytes (raw — may be 32 bytes binary or 64 bytes hex string depending on client) */
+  identity: Uint8Array;
+  /** Identity as hex string (normalized: if identity is a hex-encoded ASCII string, it's decoded; otherwise hex-encoded) */
+  identityHex: string;
+  /** Parsed capabilities */
+  capabilities: ParsedCapabilities;
+  /** Leaf node source (uint8, 1 = key_package, 2 = update, 3 = commit) */
+  leafNodeSource: number;
+  /** Lifetime: not_before (uint64 as bigint) — only present when leafNodeSource === 1 */
+  notBefore?: bigint;
+  /** Lifetime: not_after (uint64 as bigint) — only present when leafNodeSource === 1 */
+  notAfter?: bigint;
+  /** Leaf node extensions (parsed) */
+  leafExtensions: ParsedExtension[];
+  /** Leaf node signature (raw bytes, typically 64 bytes for Ed25519) */
+  leafSignature: Uint8Array;
+  /** KeyPackage extensions (parsed) */
+  kpExtensions: ParsedExtension[];
+  /** KeyPackage signature (raw bytes, typically 64 bytes for Ed25519) */
+  kpSignature: Uint8Array;
+  /** Total bytes consumed */
+  totalBytes: number;
+}
+
+/**
+ * Read a uint16 (big-endian) from a byte array.
+ */
+function readUint16BE(data: Uint8Array, offset: number): number {
+  if (offset + 1 >= data.length) {
+    throw new Error(`readUint16BE: offset ${offset} out of bounds (length ${data.length})`);
+  }
+  return (data[offset]! << 8) | data[offset + 1]!;
+}
+
+/**
+ * Read a uint64 (big-endian) as bigint from a byte array.
+ */
+function readUint64BE(data: Uint8Array, offset: number): bigint {
+  if (offset + 7 >= data.length) {
+    throw new Error(`readUint64BE: offset ${offset} out of bounds (length ${data.length})`);
+  }
+  let value = 0n;
+  for (let i = 0; i < 8; i++) {
+    value = (value << 8n) | BigInt(data[offset + i]!);
+  }
+  return value;
+}
+
+/**
+ * Read a varint-prefixed byte vector.
+ */
+function readVarintBytes(
+  data: Uint8Array,
+  offset: number
+): [bytes: Uint8Array, newOffset: number] {
+  const [len, off] = readMlsVarint(data, offset);
+  if (off + len > data.length) {
+    throw new Error(
+      `readVarintBytes: vector length ${len} exceeds data (offset ${off}, length ${data.length})`
+    );
+  }
+  return [data.slice(off, off + len), off + len];
+}
+
+/**
+ * Parse a varint-prefixed list of uint16 values.
+ */
+function readUint16List(data: Uint8Array, offset: number): [values: number[], newOffset: number] {
+  const [vecBytes, newOff] = readVarintBytes(data, offset);
+  const values: number[] = [];
+  for (let i = 0; i + 1 < vecBytes.length; i += 2) {
+    values.push((vecBytes[i]! << 8) | vecBytes[i + 1]!);
+  }
+  return [values, newOff];
+}
+
+/**
+ * Parse a varint-prefixed extensions list.
+ * Each extension is: type(uint16) + data(varint-prefixed bytes).
+ */
+function readExtensionsList(
+  data: Uint8Array,
+  offset: number
+): [extensions: ParsedExtension[], newOffset: number] {
+  const [vecBytes, newOff] = readVarintBytes(data, offset);
+  const extensions: ParsedExtension[] = [];
+  let i = 0;
+  while (i + 1 < vecBytes.length) {
+    const type = (vecBytes[i]! << 8) | vecBytes[i + 1]!;
+    i += 2;
+    const [extData, nextI] = readVarintBytes(vecBytes, i);
+    extensions.push({ type, data: extData });
+    i = nextI;
+  }
+  return [extensions, newOff];
+}
+
+/**
+ * Check if a byte array looks like a hex-encoded ASCII string.
+ * Returns true if all bytes are valid hex ASCII characters (0-9, a-f, A-F)
+ * and the length is even.
+ */
+function isHexAscii(bytes: Uint8Array): boolean {
+  if (bytes.length === 0 || bytes.length % 2 !== 0) return false;
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i]!;
+    if (
+      !(b >= 0x30 && b <= 0x39) && // 0-9
+      !(b >= 0x61 && b <= 0x66) && // a-f
+      !(b >= 0x41 && b <= 0x46)    // A-F
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Parse raw TLS-encoded KeyPackage bytes using standalone varint-aware parsing.
+ *
+ * Unlike `parseKeyPackageBytes()` which delegates to ts-mls's `decodeKeyPackage()`,
+ * this parser reads the wire format directly. This is useful for:
+ * - Debugging interop issues between different MLS implementations
+ * - Analyzing KeyPackages from OpenMLS, marmot-chat (XChat), MDK, etc.
+ * - Extracting fields without requiring ts-mls to successfully parse the package
+ *
+ * Handles both raw KeyPackage format and MLSMessage-wrapped format
+ * (strips the 4-byte header if wireformat is 0x0005).
+ *
+ * @param bytes - Raw or MLSMessage-wrapped KeyPackage bytes
+ * @returns Parsed KeyPackage with all raw fields
+ */
+export function parseKeyPackageRaw(bytes: Uint8Array): ParsedKeyPackageRaw {
+  if (bytes.length < 4) {
+    throw new Error('parseKeyPackageRaw: data too short');
+  }
+
+  let data = bytes;
+  let offset = 0;
+
+  // Check for MLSMessage-wrapped format: version(0x0001) + wireformat(0x0005)
+  if (data[0] === 0x00 && data[1] === 0x01 && data[2] === 0x00 && data[3] === 0x05) {
+    data = data.slice(4);
+  }
+
+  // version: uint16
+  const version = readUint16BE(data, offset);
+  offset += 2;
+
+  // cipher_suite: uint16
+  const cipherSuite = readUint16BE(data, offset);
+  offset += 2;
+
+  // init_key: varint(len) + bytes
+  let initKey: Uint8Array;
+  [initKey, offset] = readVarintBytes(data, offset);
+
+  // LeafNode starts here
+  // encryption_key: varint(len) + bytes
+  let encryptionKey: Uint8Array;
+  [encryptionKey, offset] = readVarintBytes(data, offset);
+
+  // signature_key: varint(len) + bytes
+  let signatureKey: Uint8Array;
+  [signatureKey, offset] = readVarintBytes(data, offset);
+
+  // credential_type: uint16
+  const credentialType = readUint16BE(data, offset);
+  offset += 2;
+
+  // identity: varint(len) + bytes
+  let identity: Uint8Array;
+  [identity, offset] = readVarintBytes(data, offset);
+
+  // Normalize identity to hex string
+  let identityHex: string;
+  if (isHexAscii(identity)) {
+    // XChat/marmot-chat style: identity is hex-encoded ASCII string
+    identityHex = new TextDecoder().decode(identity);
+  } else {
+    // MDK style: identity is raw 32-byte pubkey
+    identityHex = bytesToHexInternal(identity);
+  }
+
+  // capabilities
+  let versions: number[];
+  [versions, offset] = readUint16List(data, offset);
+
+  let ciphersuites: number[];
+  [ciphersuites, offset] = readUint16List(data, offset);
+
+  let extensions: number[];
+  [extensions, offset] = readUint16List(data, offset);
+
+  let proposals: number[];
+  [proposals, offset] = readUint16List(data, offset);
+
+  let credentials: number[];
+  [credentials, offset] = readUint16List(data, offset);
+
+  const capabilities: ParsedCapabilities = {
+    versions,
+    ciphersuites,
+    extensions,
+    proposals,
+    credentials,
+  };
+
+  // leaf_node_source: uint8
+  const leafNodeSource = data[offset]!;
+  offset += 1;
+
+  // Lifetime (only for key_package source, type 1)
+  let notBefore: bigint | undefined;
+  let notAfter: bigint | undefined;
+  if (leafNodeSource === 1) {
+    notBefore = readUint64BE(data, offset);
+    offset += 8;
+    notAfter = readUint64BE(data, offset);
+    offset += 8;
+  }
+
+  // leaf_extensions: varint(len) + extensions list
+  let leafExtensions: ParsedExtension[];
+  [leafExtensions, offset] = readExtensionsList(data, offset);
+
+  // leaf_signature: varint(len) + bytes
+  let leafSignature: Uint8Array;
+  [leafSignature, offset] = readVarintBytes(data, offset);
+
+  // kp_extensions: varint(len) + extensions list
+  let kpExtensions: ParsedExtension[];
+  [kpExtensions, offset] = readExtensionsList(data, offset);
+
+  // kp_signature: varint(len) + bytes
+  let kpSignature: Uint8Array;
+  [kpSignature, offset] = readVarintBytes(data, offset);
+
+  return {
+    version,
+    cipherSuite,
+    initKey,
+    encryptionKey,
+    signatureKey,
+    credentialType,
+    identity,
+    identityHex,
+    capabilities,
+    leafNodeSource,
+    notBefore,
+    notAfter,
+    leafExtensions,
+    leafSignature,
+    kpExtensions,
+    kpSignature,
+    totalBytes: offset,
+  };
 }
 
 // ─── Re-exported Types ──────────────────────────────────────────────────────
