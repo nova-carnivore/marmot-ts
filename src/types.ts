@@ -184,6 +184,8 @@ export interface MarmotGroupData {
   imageKey: Uint8Array;
   /** ChaCha20-Poly1305 nonce for group image encryption (12 bytes, zeros if none) */
   imageNonce: Uint8Array;
+  /** Blossom upload key (32 bytes, v2 only, optional) */
+  imageUploadKey?: Uint8Array;
 }
 
 /**

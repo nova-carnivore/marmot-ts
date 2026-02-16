@@ -148,9 +148,12 @@ export function ciphersuiteIdToName(id: number): CiphersuiteName {
  * This function returns a minimal, interop-tested capabilities set:
  * - versions: [mls10]
  * - ciphersuites: [0x0001] (AES-128-GCM + Ed25519) — the Marmot default
- * - extensions: [0x000a] (ratchet_tree — required by OpenMLS)
+ * - extensions: [0x000a, 0xf2ee] (ratchet_tree + marmot_group_data — both required)
  * - proposals: [] (no custom proposal types)
  * - credentials: [basic] (Marmot uses basic credentials with Nostr pubkey identity)
+ *
+ * Per MIP-00: "Marmot implementations MUST include the 0xf2ee extension for
+ * marmot_group_data and the 0x000a extension for last_resort."
  */
 export function marmotCapabilities(): Capabilities {
   return {
@@ -159,7 +162,7 @@ export function marmotCapabilities(): Capabilities {
       'MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519',       // 0x0001
       'MLS_128_DHKEMX25519_CHACHA20POLY1305_SHA256_Ed25519', // 0x0003
     ],
-    extensions: [0x000a], // ratchet_tree — required for OpenMLS interop
+    extensions: [0x000a, 0xf2ee], // ratchet_tree + marmot_group_data (MIP-00 mandatory)
     proposals: [],
     credentials: ['basic'],
   };

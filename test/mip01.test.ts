@@ -4,7 +4,9 @@ import {
   MARMOT_GROUP_DATA_VERSION,
   MARMOT_GROUP_DATA_MIN_SIZE,
   serializeMarmotGroupData,
+  serializeMarmotGroupDataV2,
   deserializeMarmotGroupData,
+  deserializeMarmotGroupDataV2,
   validateMarmotGroupData,
   detectAndValidateVersion,
   validateStructure,
@@ -17,9 +19,12 @@ import {
   deriveImageUploadKeypair,
   updateGroupData,
   getNostrGroupIdHex,
+  readVLI,
+  writeVLI,
+  vliSize,
 } from '../src/mip01.js';
 import type { MarmotGroupData } from '../src/types.js';
-import { bytesToHex } from '../src/utils.js';
+import { bytesToHex, hexToBytes } from '../src/utils.js';
 
 describe('MIP-01: Group Construction', () => {
   const testPubkey1 = 'a'.repeat(64);
@@ -125,9 +130,9 @@ describe('MIP-01: Group Construction', () => {
     });
 
     it('should reject buffer too small', () => {
-      expect(() => deserializeMarmotGroupData(new Uint8Array(10))).toThrow(
-        'Buffer too small'
-      );
+      // After v2 support, version detection happens first
+      // A small all-zeros buffer will be detected as version 0 (unsupported)
+      expect(() => deserializeMarmotGroupData(new Uint8Array(10))).toThrow();
     });
   });
 
@@ -336,6 +341,270 @@ describe('MIP-01: Group Construction', () => {
       const hex = getNostrGroupIdHex(data);
       expect(hex.length).toBe(64);
       expect(/^[0-9a-f]{64}$/.test(hex)).toBe(true);
+    });
+  });
+
+  describe('VLI Encoding (RFC 9000 §16)', () => {
+    it('should encode/decode 1-byte values (0-63)', () => {
+      const buffer = new Uint8Array(10);
+      
+      // Test boundary values
+      expect(writeVLI(buffer, 0, 0)).toBe(1);
+      expect(buffer[0]).toBe(0x00);
+      expect(readVLI(buffer, 0)).toEqual({ value: 0, bytesRead: 1 });
+
+      expect(writeVLI(buffer, 0, 63)).toBe(1);
+      expect(buffer[0]).toBe(0x3f);
+      expect(readVLI(buffer, 0)).toEqual({ value: 63, bytesRead: 1 });
+
+      expect(writeVLI(buffer, 0, 42)).toBe(1);
+      expect(buffer[0]).toBe(42);
+      expect(readVLI(buffer, 0)).toEqual({ value: 42, bytesRead: 1 });
+    });
+
+    it('should encode/decode 2-byte values (64-16383)', () => {
+      const buffer = new Uint8Array(10);
+
+      // Test boundary values
+      expect(writeVLI(buffer, 0, 64)).toBe(2);
+      expect(buffer[0]).toBe(0x40);
+      expect(buffer[1]).toBe(0x40);
+      expect(readVLI(buffer, 0)).toEqual({ value: 64, bytesRead: 2 });
+
+      expect(writeVLI(buffer, 0, 16383)).toBe(2);
+      expect(buffer[0]).toBe(0x7f);
+      expect(buffer[1]).toBe(0xff);
+      expect(readVLI(buffer, 0)).toEqual({ value: 16383, bytesRead: 2 });
+
+      expect(writeVLI(buffer, 0, 1234)).toBe(2);
+      expect(readVLI(buffer, 0)).toEqual({ value: 1234, bytesRead: 2 });
+    });
+
+    it('should encode/decode 4-byte values', () => {
+      const buffer = new Uint8Array(10);
+
+      expect(writeVLI(buffer, 0, 16384)).toBe(4);
+      expect(buffer[0]).toBe(0x80);
+      expect(readVLI(buffer, 0)).toEqual({ value: 16384, bytesRead: 4 });
+
+      expect(writeVLI(buffer, 0, 1073741823)).toBe(4);
+      expect(readVLI(buffer, 0)).toEqual({ value: 1073741823, bytesRead: 4 });
+
+      expect(writeVLI(buffer, 0, 100000)).toBe(4);
+      expect(readVLI(buffer, 0)).toEqual({ value: 100000, bytesRead: 4 });
+    });
+
+    it('should calculate correct VLI sizes', () => {
+      expect(vliSize(0)).toBe(1);
+      expect(vliSize(63)).toBe(1);
+      expect(vliSize(64)).toBe(2);
+      expect(vliSize(16383)).toBe(2);
+      expect(vliSize(16384)).toBe(4);
+      expect(vliSize(1073741823)).toBe(4);
+      expect(vliSize(1073741824)).toBe(8);
+    });
+
+    it('should reject negative values', () => {
+      const buffer = new Uint8Array(10);
+      expect(() => writeVLI(buffer, 0, -1)).toThrow('negative values');
+    });
+
+    it('should reject non-integer values', () => {
+      const buffer = new Uint8Array(10);
+      expect(() => writeVLI(buffer, 0, 3.14)).toThrow('must be an integer');
+    });
+  });
+
+  describe('MIP-01 v2: VLI-encoded Group Data', () => {
+    function makeTestGroupDataV2(): MarmotGroupData {
+      return {
+        version: 2,
+        nostrGroupId: new Uint8Array(32).fill(0xaa),
+        name: 'Test Group v2',
+        description: 'VLI-encoded group',
+        adminPubkeys: [testPubkey1],
+        relays: ['wss://relay1.com', 'wss://relay2.com'],
+        imageHash: new Uint8Array(0), // Empty in v2
+        imageKey: new Uint8Array(0),
+        imageNonce: new Uint8Array(0),
+        imageUploadKey: new Uint8Array(0),
+      };
+    }
+
+    it('should serialize and deserialize v2 with empty image fields', () => {
+      const original = makeTestGroupDataV2();
+      const serialized = serializeMarmotGroupDataV2(original);
+      const deserialized = deserializeMarmotGroupDataV2(serialized);
+
+      expect(deserialized.version).toBe(2);
+      expect(bytesToHex(deserialized.nostrGroupId)).toBe(bytesToHex(original.nostrGroupId));
+      expect(deserialized.name).toBe(original.name);
+      expect(deserialized.description).toBe(original.description);
+      expect(deserialized.adminPubkeys).toEqual(original.adminPubkeys);
+      expect(deserialized.relays).toEqual(original.relays);
+      expect(deserialized.imageHash.length).toBe(0);
+      expect(deserialized.imageKey.length).toBe(0);
+      expect(deserialized.imageNonce.length).toBe(0);
+      expect(deserialized.imageUploadKey).toBe(undefined);
+    });
+
+    it('should serialize and deserialize v2 with populated image fields', () => {
+      const data = makeTestGroupDataV2();
+      data.imageHash = new Uint8Array(32).fill(0xbb);
+      data.imageKey = new Uint8Array(32).fill(0xcc);
+      data.imageNonce = new Uint8Array(12).fill(0xdd);
+      data.imageUploadKey = new Uint8Array(32).fill(0xee);
+
+      const serialized = serializeMarmotGroupDataV2(data);
+      const deserialized = deserializeMarmotGroupDataV2(serialized);
+
+      expect(bytesToHex(deserialized.imageHash)).toBe(bytesToHex(data.imageHash));
+      expect(bytesToHex(deserialized.imageKey)).toBe(bytesToHex(data.imageKey));
+      expect(bytesToHex(deserialized.imageNonce)).toBe(bytesToHex(data.imageNonce));
+      expect(bytesToHex(deserialized.imageUploadKey!)).toBe(bytesToHex(data.imageUploadKey));
+    });
+
+    it('should handle multiple admin pubkeys in v2 (individually VLI-prefixed)', () => {
+      const data = makeTestGroupDataV2();
+      data.adminPubkeys = [testPubkey1, testPubkey2, 'c'.repeat(64)];
+
+      const serialized = serializeMarmotGroupDataV2(data);
+      const deserialized = deserializeMarmotGroupDataV2(serialized);
+
+      expect(deserialized.adminPubkeys).toEqual([testPubkey1, testPubkey2, 'c'.repeat(64)]);
+    });
+
+    it('should handle multiple relays in v2 (individually VLI-prefixed)', () => {
+      const data = makeTestGroupDataV2();
+      data.relays = ['wss://r1.com', 'wss://r2.com', 'wss://r3.com', 'wss://r4.com'];
+
+      const serialized = serializeMarmotGroupDataV2(data);
+      const deserialized = deserializeMarmotGroupDataV2(serialized);
+
+      expect(deserialized.relays).toEqual(['wss://r1.com', 'wss://r2.com', 'wss://r3.com', 'wss://r4.com']);
+    });
+
+    it('should auto-detect v2 and deserialize correctly', () => {
+      const data = makeTestGroupDataV2();
+      const serialized = serializeMarmotGroupDataV2(data);
+      const deserialized = deserializeMarmotGroupData(serialized); // Auto-detect
+
+      expect(deserialized.version).toBe(2);
+      expect(deserialized.name).toBe(data.name);
+    });
+
+    it('should validate v2 structure correctly', () => {
+      const data = makeTestGroupDataV2();
+      const serialized = serializeMarmotGroupDataV2(data);
+      expect(validateStructure(serialized)).toBe(true);
+    });
+
+    it('should deserialize real MDK v2 data (212 bytes)', () => {
+      // Real test data from MDK/0.5.3
+      const hexData = '0002468bf188103161e4510e7c5686cfb868cb50e3fd5c132f040f0534f1833e439b1e436861742077697468206e707562313373687035376839387367753478770f4d61726d6f7420434c49206368617440424040323965373166386562383961353731343834643762353938373466323234613565326165383761663535616365616633336364376435343433653230303636363a0d7773733a2f2f6e6f732e6c6f6c147773733a2f2f72656c61792e64616d75732e696f167773733a2f2f72656c61792e7072696d616c2e6e657400000000';
+      const buffer = hexToBytes(hexData);
+
+      expect(buffer.length).toBe(212);
+
+      const data = deserializeMarmotGroupData(buffer);
+
+      expect(data.version).toBe(2);
+      expect(data.name).toBe('Chat with npub13shp57h98sgu4xw');
+      expect(data.description).toBe('Marmot CLI chat');
+      expect(data.adminPubkeys).toEqual(['29e71f8eb89a571484d7b59874f224a5e2ae87af55aceaf33cd7d5443e200666']);
+      expect(data.relays).toEqual(['wss://nos.lol', 'wss://relay.damus.io', 'wss://relay.primal.net']);
+      expect(data.imageHash.length).toBe(0);
+      expect(data.imageKey.length).toBe(0);
+      expect(data.imageNonce.length).toBe(0);
+      expect(data.imageUploadKey).toBe(undefined);
+    });
+
+    it('should roundtrip v2 serialization', () => {
+      const original = makeTestGroupDataV2();
+      original.adminPubkeys = [testPubkey1, testPubkey2];
+      original.relays = ['wss://r1.com', 'wss://r2.com', 'wss://r3.com'];
+
+      const serialized = serializeMarmotGroupDataV2(original);
+      const deserialized = deserializeMarmotGroupDataV2(serialized);
+      const reSerialized = serializeMarmotGroupDataV2(deserialized);
+
+      expect(bytesToHex(serialized)).toBe(bytesToHex(reSerialized));
+    });
+
+    it('should validate v2 data with optional imageUploadKey', () => {
+      const data = makeTestGroupDataV2();
+      data.imageUploadKey = new Uint8Array(32).fill(0xff);
+
+      expect(() => validateMarmotGroupData(data)).not.toThrow();
+    });
+
+    it('should reject imageUploadKey in v1', () => {
+      const data = makeTestGroupData();
+      (data as any).imageUploadKey = new Uint8Array(32);
+
+      expect(() => validateMarmotGroupData(data)).toThrow('only supported in version 2');
+    });
+
+    it('should allow empty image fields in v2', () => {
+      const data = makeTestGroupDataV2();
+      data.imageHash = new Uint8Array(0);
+      data.imageKey = new Uint8Array(0);
+      data.imageNonce = new Uint8Array(0);
+
+      expect(() => validateMarmotGroupData(data)).not.toThrow();
+    });
+
+    it('should reject wrong-sized image fields in v2', () => {
+      const data = makeTestGroupDataV2();
+      data.imageHash = new Uint8Array(16); // Wrong size
+
+      expect(() => validateMarmotGroupData(data)).toThrow('image_hash must be 0 or 32 bytes');
+    });
+  });
+
+  describe('v1/v2 compatibility', () => {
+    it('should maintain v1 compatibility', () => {
+      const v1Data = makeTestGroupData();
+      const serialized = serializeMarmotGroupData(v1Data);
+      const deserialized = deserializeMarmotGroupData(serialized);
+
+      expect(deserialized.version).toBe(1);
+      expect(deserialized.name).toBe(v1Data.name);
+      expect(deserialized.adminPubkeys).toEqual(v1Data.adminPubkeys);
+    });
+
+    it('should detect and route v1 correctly', () => {
+      const v1Data = makeTestGroupData();
+      const serialized = serializeMarmotGroupData(v1Data);
+      
+      expect(detectAndValidateVersion(serialized)).toBe(1);
+      expect(validateStructure(serialized)).toBe(true);
+    });
+
+    it('should detect and route v2 correctly', () => {
+      const v2Data: MarmotGroupData = {
+        version: 2,
+        nostrGroupId: new Uint8Array(32),
+        name: 'v2 test',
+        description: 'test',
+        adminPubkeys: [testPubkey1],
+        relays: ['wss://relay.com'],
+        imageHash: new Uint8Array(0),
+        imageKey: new Uint8Array(0),
+        imageNonce: new Uint8Array(0),
+      };
+      const serialized = serializeMarmotGroupDataV2(v2Data);
+
+      expect(detectAndValidateVersion(serialized)).toBe(2);
+      expect(validateStructure(serialized)).toBe(true);
+    });
+
+    it('should reject unsupported version', () => {
+      const buffer = new Uint8Array(100);
+      const view = new DataView(buffer.buffer);
+      view.setUint16(0, 99, false); // Version 99
+
+      expect(() => deserializeMarmotGroupData(buffer)).toThrow('Unsupported version: 99');
     });
   });
 });
